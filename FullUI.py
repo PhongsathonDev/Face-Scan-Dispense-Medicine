@@ -1,5 +1,6 @@
 import tkinter as tk
 from PIL import Image, ImageTk
+from datetime import datetime
 
 class FullScreenImageApp:
     def __init__(self, root):
@@ -24,17 +25,30 @@ class FullScreenImageApp:
 
         # เพิ่มปุ่ม (เป็นสี่เหลี่ยมคลิกได้)
         self.create_button()
+        self.EatDay()
+        self.DateNow()
+        self.AlarmTime()
 
         # ผูกปุ่ม q ให้ปิดโปรแกรม
         self.root.bind('q', lambda event: self.root.destroy())
 
     def create_button(self):
         # วาดสี่เหลี่ยมเป็นปุ่ม
-        button_frame = self.canvas.create_rectangle(450, 160, 820, 260, outline="black", width=self.Outline, fill="white")
-        # ใส่ข้อความในปุ่ม
-        self.canvas.create_text(635, 210, text="ปุ่มตัวอย่าง", font=("Prompt", 24, "bold"), fill="black")
-        # ทำให้คลิกได้
+        button_frame = self.canvas.create_rectangle(450, 540, 820, 670, outline="black", width=self.Outline)
         self.canvas.tag_bind(button_frame, "<Button-1>", self.on_button_click)
+    
+    def EatDay(self):
+        self.canvas.create_text(132, 325, text="3", font=("Prompt", 32, "bold"))
+        
+    def DateNow(self):
+        current_date = datetime.now().strftime("%d/%m/%Y")
+
+        self.canvas.create_text(280, 180, text=current_date,font=("Prompt", 28, "bold"))
+        
+    def AlarmTime(self):
+        current_time = time_str = datetime.now().strftime("%H:%M")
+
+        self.canvas.create_text(580, 180, text=current_time,font=("Prompt", 28, "bold"))
 
     def on_button_click(self, event):
         print("คลิกปุ่มแล้วนะคะ 💕")
