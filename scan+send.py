@@ -200,7 +200,7 @@ class FaceVerifier:
             print("ปิดโปรแกรมเรียบร้อย")
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     WEBAPP_URL = "https://script.google.com/macros/s/AKfycbypFJrwXJVcEPNyveBYXplgGsO2CxZLnWvaHQgKbVLbThRwd7vbksIqAItmVtRLD-4v/exec"
 
     verifier = FaceVerifier(
