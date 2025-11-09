@@ -136,12 +136,12 @@ class FaceVerifier:
         cv2.destroyAllWindows()
 
         # ปิด Serial ด้วย
-        if self.ser is not None:
-            try:
-                self.ser.close()
-                print("🔌 ปิดพอร์ต Serial ESP32 แล้ว")
-            except Exception as e:
-                print("⚠️ ปิด Serial ESP32 มีปัญหา:", e)
+        # if self.ser is not None:
+        #     try:
+        #         self.ser.close()
+        #         print("🔌 ปิดพอร์ต Serial ESP32 แล้ว")
+        #     except Exception as e:
+        #         print("⚠️ ปิด Serial ESP32 มีปัญหา:", e)
 
     def _recognize_faces(self, frame):
         # ย่อภาพเพื่อให้เร็วขึ้น
