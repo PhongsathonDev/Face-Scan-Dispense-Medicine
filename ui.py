@@ -3,27 +3,33 @@ from PIL import Image, ImageTk
 
 # ---------- ตั้งค่าหลัก ----------
 root = tk.Tk()
-root.title("แสดงรูปภาพด้วย Tkinter")
+root.title("แสดงรูปภาพเต็มจอ")
+
+# ให้หน้าต่างเต็มจอ
+root.attributes("-fullscreen", True)
 
 # ---------- โหลดรูปภาพ ----------
-# แก้ชื่อไฟล์ให้ตรงกับรูปของพี่ เช่น "cat.png", "photo.jpg"
 IMAGE_PATH = "bg.png"
-
-# เปิดรูปด้วย Pillow
 image = Image.open(IMAGE_PATH)
 
-# ถ้าอยากย่อขนาดรูปให้พอดีหน้าจอ ก็ใช้ resize ได้ (ไม่บังคับ)
-# image = image.resize((600, 400))
+# ปรับขนาดรูปให้พอดีกับหน้าจออัตโนมัติ
+screen_width = root.winfo_screenwidth()
+screen_height = root.winfo_screenheight()
+image = image.resize((screen_width, screen_height))
 
-# แปลงให้ Tkinter ใช้ได้
 photo = ImageTk.PhotoImage(image)
 
-# ---------- เอารูปไปใส่ใน Label ----------
+# ---------- แสดงรูป ----------
 label = tk.Label(root, image=photo)
-label.pack(padx=10, pady=10)
+label.pack(fill="both", expand=True)
+label.image = photo  # ป้องกัน garbage collection
 
-# ต้องเก็บ reference ไว้ ไม่งั้นรูปจะหาย
-label.image = photo
+# ---------- ฟังก์ชันปิดหน้าต่างเมื่อกด q ----------
+def close_on_q(event):
+    root.destroy()
 
-# ---------- เริ่มรันหน้าต่าง ----------
+# ผูกปุ่ม q ให้ปิดโปรแกรม
+root.bind('q', close_on_q)
+
+# ---------- เริ่มรัน ----------
 root.mainloop()
