@@ -234,6 +234,12 @@ class FaceVerifier:
         print("กำลังเปิดกล้อง... มองตรงเข้ากล้องให้ครบเวลาที่กำหนด")
         print("กด 'q' เพื่อยกเลิก")
 
+        # ---------- เพิ่มส่วนนี้ให้แสดงเต็มจอ ----------
+        window_name = 'Video'
+        cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        # ------------------------------------------------
+
         try:
             while True:
                 ret, frame = self.video_capture.read()
@@ -245,7 +251,7 @@ class FaceVerifier:
                 self._update_hold_state(recognized_this_frame)
                 frame = self._draw_status_text(frame)
 
-                cv2.imshow('Video', frame)
+                cv2.imshow(window_name, frame)
 
                 # ถ้าสแกนผ่านแล้ว รออีกแป๊บแล้วค่อยออก
                 if self.verified:
@@ -260,7 +266,6 @@ class FaceVerifier:
             self.close_camera()
             print("ปิดโปรแกรมเรียบร้อย")
 
-        # คืนผลลัพธ์ให้โค้ดฝั่ง UI ใช้ตัดสินใจ
         return self.verified
 
 
