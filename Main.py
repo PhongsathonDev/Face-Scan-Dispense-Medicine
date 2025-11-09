@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 import time
 import requests
-import serial
+import serial  # <<< เพิ่มอันนี้สำหรับคุยกับ ESP32
+
 
 class FaceVerifier:
     def __init__(
@@ -15,7 +16,9 @@ class FaceVerifier:
         camera_index: int = 0,
         webapp_url: str | None = None,
         sheet_name: str = "sheet1",
-        face_id: str = "user_001"
+        face_id: str = "user_001",
+        serial_port: str | None = "/dev/ttyUSB0",   # <<< พอร์ต ESP32
+        serial_baudrate: int = 115200               # <<< ต้องตรงกับ ESP32
     ):
         """
         known_image_path : path รูปต้นแบบ
@@ -26,6 +29,8 @@ class FaceVerifier:
         webapp_url       : URL Google Apps Script Web App
         sheet_name       : ชื่อชีตใน Google Sheet
         face_id          : รหัสประจำตัวใบหน้า
+        serial_port      : พอร์ตอนุกรมที่ต่อ ESP32 (เช่น /dev/ttyUSB0 หรือ /dev/ttyACM0)
+        serial_baudrate  : baudrate ของ Serial (ต้องตรงกับ ESP32)
         """
         self.known_image_path = known_image_path
         self.known_name = known_name
@@ -37,6 +42,21 @@ class FaceVerifier:
         self.sheet_name = sheet_name
         self.face_id = face_id
 
+        # ====== Serial ไปยัง ESP32 ======
+        self.serial_port = serial_port
+        self.serial_baudrate = serial_baudrate
+        self.ser = None
+
+        if self.serial_port is not None:
+            try:
+                self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
+                # รอให้ ESP32 รีเซ็ตตัวเองหลังเชื่อมต่อ
+                time.sleep(2)
+                print(f"✅ เปิดพอร์ต Serial ไป ESP32 ที่ {self.serial_port} เรียบร้อย")
+            except Exception as e:
+                print("❌ เปิดพอร์ต Serial ไป ESP32 ไม่สำเร็จ:", e)
+                self.ser = None
+
         # โหลดและเตรียมข้อมูลใบหน้าต้นแบบ
         self.known_face_encodings, self.known_face_names = self._load_known_faces()
 
@@ -47,13 +67,13 @@ class FaceVerifier:
         # ตัวจัดการกล้อง
         self.video_capture = None
 
-    # ---------- ส่วน Google Sheet ----------
+    # ---------- ส่วนส่งไป Google Sheet ----------
 
-    def send_log_to_sheet(self, note: str = "Face verified"):
-        """ส่งข้อมูลไปยัง Google Sheet ผ่าน Web App"""
+    def send_log_to_sheet(self, note: str = "Face verified") -> bool:
+        """ส่งข้อมูลไปยัง Google Sheet ผ่าน Web App — คืนค่า True ถ้าสำเร็จ"""
         if not self.webapp_url:
             print("⚠️ ยังไม่ได้ตั้งค่า WEBAPP_URL ข้ามการส่ง Google Sheet")
-            return
+            return False
 
         payload = {
             "sheet": self.sheet_name,
@@ -72,8 +92,27 @@ class FaceVerifier:
             response = requests.post(self.webapp_url, json=payload, timeout=10)
             print("ส่งไป Google Sheet → Status code:", response.status_code)
             print("Response text:", response.text)
+
+            # ถ้าอยากเข้มงวดหน่อย ถือว่าสำเร็จเฉพาะ status 200 เท่านั้น
+            return response.status_code == 200
         except Exception as e:
             print("❌ ส่งข้อมูลไป Google Sheet ไม่สำเร็จ:", e)
+            return False
+
+    # ---------- ส่วนคุยกับ ESP32 ----------
+
+    def send_command_to_esp32(self, cmd: str = "f"):
+        """ส่งคำสั่งตัวอักษรไป ESP32 ผ่าน Serial"""
+        if self.ser is None:
+            print("⚠️ ยังไม่ได้เปิด Serial ไป ESP32 หรือเปิดไม่สำเร็จ")
+            return
+
+        try:
+            self.ser.write(cmd.encode("utf-8"))
+            self.ser.flush()
+            print(f"➡️ ส่งคำสั่ง '{cmd}' ไป ESP32 แล้ว")
+        except Exception as e:
+            print("❌ ส่งคำสั่งไป ESP32 ไม่สำเร็จ:", e)
 
     # ---------- ส่วน Face Recognition ----------
 
@@ -95,6 +134,14 @@ class FaceVerifier:
         if self.video_capture is not None:
             self.video_capture.release()
         cv2.destroyAllWindows()
+
+        # ปิด Serial ด้วย
+        if self.ser is not None:
+            try:
+                self.ser.close()
+                print("🔌 ปิดพอร์ต Serial ESP32 แล้ว")
+            except Exception as e:
+                print("⚠️ ปิด Serial ESP32 มีปัญหา:", e)
 
     def _recognize_faces(self, frame):
         # ย่อภาพเพื่อให้เร็วขึ้น
@@ -154,8 +201,15 @@ class FaceVerifier:
                 if elapsed >= self.hold_seconds and not self.verified:
                     self.verified = True
                     print("✅ สแกนใบหน้าผ่านแล้ว")
-                    # ✨ เรียกส่ง Google Sheet ตรงนี้เลยตอนผ่านครั้งแรก
-                    self.send_log_to_sheet(note="Face verified from camera")
+
+                    # 1) ส่ง Log ไป Google Sheet
+                    ok = self.send_log_to_sheet(note="Face verified from camera")
+
+                    # 2) ถ้าส่งสำเร็จค่อยสั่ง ESP32 ทำงาน
+                    if ok:
+                        self.send_command_to_esp32("f")
+                    else:
+                        print("⚠️ ไม่ส่งคำสั่งไป ESP32 เพราะส่ง Google Sheet ไม่สำเร็จ")
         else:
             self.hold_start_time = None
 
@@ -212,6 +266,8 @@ if __name__ == "__main__":
         camera_index=0,
         webapp_url=WEBAPP_URL,
         sheet_name="Patient",
-        face_id="Paper"
+        face_id="Paper",
+        serial_port="/dev/ttyUSB0",  # <<< ถ้าเสียบแล้วเป็น /dev/ttyACM0 ก็เปลี่ยนตรงนี้
+        serial_baudrate=115200
     )
     verifier.run()
