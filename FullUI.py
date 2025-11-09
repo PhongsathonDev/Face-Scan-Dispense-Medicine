@@ -1,7 +1,7 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 from datetime import datetime
-from Facescan import FaceVerifier   # <<< ดึงคลาสจาก main.py
+from main import FaceVerifier   # <<< ดึงคลาสจาก main.py
 
 class FullScreenImageApp:
     def __init__(self, root):
