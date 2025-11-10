@@ -1,7 +1,32 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 from datetime import datetime
-from Facescan import FaceVerifier   # <<< ดึงคลาสจาก main.py
+import requests                    # <<< เพิ่มสำหรับส่ง LINE
+from Facescan import FaceVerifier  # <<< ดึงคลาสจาก main.py
+
+# ==== ตั้งค่า LINE Notify ====
+LINE_TOKEN = "PUT_YOUR_LINE_NOTIFY_TOKEN_HERE"   # <<< ใส่ Token ของตัวเองตรงนี้
+
+def send_line_notify(message: str):
+    """ส่งข้อความไป LINE Notify"""
+    if not LINE_TOKEN or LINE_TOKEN == "PUT_YOUR_LINE_NOTIFY_TOKEN_HERE":
+        print("⚠ ยังไม่ได้ใส่ LINE_TOKEN เลยนะคะ เลยส่ง LINE ไม่ได้")
+        return
+
+    url = "https://notify-api.line.me/api/notify"
+    headers = {
+        "Authorization": f"Bearer {LINE_TOKEN}"
+    }
+    data = {
+        "message": message
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, data=data, timeout=10)
+        print("LINE Notify status:", resp.status_code, resp.text)
+    except Exception as e:
+        print("ส่ง LINE ไม่สำเร็จ:", e)
+
 
 class FullScreenImageApp:
     def __init__(self, root):
@@ -11,7 +36,12 @@ class FullScreenImageApp:
 
         self.Outline = 0  # ความหนาเส้นขอบปุ่ม
 
-        # โหลดรูปภาพและปรับขนาดให้เต็มจอ
+        # ---------- ตั้งค่า Alarm ----------
+        self.alarm_hour = 20       # 20 นาฬิกา
+        self.alarm_minute = 0      # นาที 00
+        self.alarm_triggered_today = False  # กันไม่ให้ยิงซ้ำหลายรอบในวันเดียว
+
+        # ---------- โหลดรูปภาพพื้นหลัง ----------
         self.IMAGE_PATH = "bg.png"
         image = Image.open(self.IMAGE_PATH)
         screen_width = root.winfo_screenwidth()
@@ -28,7 +58,10 @@ class FullScreenImageApp:
         self.eat_days = 0
         self.eatday_text_id = None
 
-        # ----- สร้างอ็อบเจ็กต์ FaceVerifier ไว้ใช้ซ้ำ -----
+        # ----- ตัวแปรสำหรับแสดงเวลา -----
+        self.time_text_id = None
+
+        # ----- สร้างอ็อบเจ็กต์ FaceVerifier -----
         WEBAPP_URL = "https://script.google.com/macros/s/AKfycbypFJrwXJVcEPNyveBYXplgGsO2CxZLnWvaHQgKbVLbThRwd7vbksIqAItmVtRLD-4v/exec"
 
         self.verifier = FaceVerifier(
@@ -49,60 +82,98 @@ class FullScreenImageApp:
         self.EatDay()
         self.DateNow()
         self.AlarmTime()
-        self.Time()
+        self.Time()   # เริ่มนาฬิกา + ระบบเช็ก alarm
 
         # ปิดโปรแกรมเมื่อกด q
         self.root.bind('q', lambda event: self.root.destroy())
 
     # ---------- ปุ่มกินยา ----------
     def Eat_button(self):
-        # วาดสี่เหลี่ยมเป็นปุ่ม
-        button_frame = self.canvas.create_rectangle(450, 540, 820, 670,outline="black", width=self.Outline)
-        # ผูก event คลิก
+        button_frame = self.canvas.create_rectangle(
+            450, 540, 820, 670,
+            outline="black", width=self.Outline
+        )
         self.canvas.tag_bind(button_frame, "<Button-1>", self.on_button_click)
 
     # ---------- แสดงจำนวนวันที่กินยาแล้ว ----------
     def EatDay(self):
         self.eat_days = 0
-        # เก็บ id ไว้เพื่ออัปเดตข้อความทีหลัง
         self.eatday_text_id = self.canvas.create_text(
             132, 325, text=str(self.eat_days), font=("Prompt", 32, "bold")
         )
 
     def increment_eatday(self):
         self.eat_days += 1
-        self.canvas.itemconfigure(self.eatday_text_id, text=str(self.eat_days))
+        if self.eatday_text_id is not None:
+            self.canvas.itemconfigure(self.eatday_text_id, text=str(self.eat_days))
 
     # ---------- วันที่ปัจจุบัน ----------
     def DateNow(self):
         current_date = datetime.now().strftime("%d/%m/%Y")
-        self.canvas.create_text(280, 180, text=current_date,
-                                font=("Prompt", 28, "bold"))
+        self.canvas.create_text(
+            280, 180, text=current_date,
+            font=("Prompt", 28, "bold")
+        )
 
-    # ---------- เวลาแจ้งเตือน/เวลาแสดงบนหน้าจอ ----------
+    # ---------- เวลาแจ้งเตือน (AlarmTime) แสดงเป็นเวลา 20:00 คงที่ ----------
     def AlarmTime(self):
-        current_time = datetime.now().strftime("%H:%M")
-        self.canvas.create_text(1120, 180, text=current_time,font=("Prompt", 28, "bold"))
-        
+        alarm_str = f"{self.alarm_hour:02d}:{self.alarm_minute:02d}"
+        self.canvas.create_text(
+            1120, 180, text=alarm_str,
+            font=("Prompt", 28, "bold")
+        )
+
+    # ---------- เวลา ณ ปัจจุบัน (อัปเดตทุกวินาที) ----------
     def Time(self):
-        time_str = datetime.now().strftime("%H:%M:%S")
-        
-        self.canvas.create_text(650, 425, text=time_str, font=("Prompt", 36, "bold"))
+        # สร้าง text ครั้งเดียว
+        self.time_text_id = self.canvas.create_text(
+            650, 425, text="--:--:--",
+            font=("Prompt", 36, "bold")
+        )
+        # แล้วเริ่ม loop อัปเดต
+        self.update_time()
+
+    def update_time(self):
+        now = datetime.now()
+        time_str = now.strftime("%H:%M:%S")
+
+        if self.time_text_id is not None:
+            self.canvas.itemconfigure(self.time_text_id, text=time_str)
+
+        # เช็ก alarm ทุกครั้งที่อัปเดตเวลา
+        self.check_alarm(now)
+
+        # เรียกตัวเองใหม่ทุก 1000 ms (1 วินาที)
+        self.root.after(1000, self.update_time)
+
+    # ---------- เช็กว่าได้เวลา Alarm หรือยัง ----------
+    def check_alarm(self, now: datetime):
+        # รีเซ็ตสถานะตอนเที่ยงคืน เผื่อให้ยิงเตือนวันถัดไปได้
+        if now.hour == 0 and now.minute == 0 and now.second < 5:
+            self.alarm_triggered_today = False
+
+        # ถ้าตรงเวลา alarm และยังไม่ส่งในวันนี้
+        if (now.hour == self.alarm_hour and
+            now.minute == self.alarm_minute and
+            not self.alarm_triggered_today):
+
+            print("🔔 ถึงเวลา 20:00 น. แล้วนะคะ กำลังส่งแจ้งเตือนไป LINE")
+            send_line_notify("🔔 ถึงเวลา 20:00 น. ทานยาด้วยนะคะ 🕗")
+            self.alarm_triggered_today = True
 
     # ---------- Event ตอนกดปุ่มกินยา ----------
     def on_button_click(self, event):
         print("เริ่มสแกนใบหน้าเพื่อตรวจว่ากินยานะคะ...")
-        
-        # ซ่อนหน้า UI ชั่วคราว (จะเหลือแต่หน้าต่างกล้อง)
-        # self.root.withdraw()
+
+        # อัปเดต UI ให้เรียบร้อยก่อน
         self.root.update()
-        
+
         # เรียกตัวสแกนหน้า (บล็อกจนกว่าจะสแกนเสร็จ / กดยกเลิก)
         verified = self.verifier.run()
-        
+
         # กลับมาหน้า UI
         self.root.deiconify()
-        self.root.attributes("-fullscreen", True)  # เผื่อหลุด fullscreen
+        self.root.attributes("-fullscreen", True)
         self.root.update()
 
         # ถ้าสแกนผ่าน -> เพิ่มวันกินยา
@@ -111,6 +182,7 @@ class FullScreenImageApp:
             self.increment_eatday()
         else:
             print("❌ ไม่ผ่าน/ยกเลิกการสแกน → ไม่เพิ่ม EatDay")
+
 
 # ---------- เริ่มโปรแกรม ----------
 if __name__ == "__main__":
