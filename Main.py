@@ -1,9 +1,8 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 from datetime import datetime
-import requests, json
-import threading
-from Facescan import FaceVerifier   # <<< ดึงคลาสจาก main.py
+import requests, json, threading
+from Facescan import FaceVerifier
 
 class FullScreenImageApp:
     def __init__(self, root):
@@ -11,9 +10,9 @@ class FullScreenImageApp:
         self.root.title("แสดงรูปภาพเต็มจอ")
         self.root.attributes("-fullscreen", True)
 
-        self.Outline = 0  # ความหนาเส้นขอบปุ่ม
+        self.Outline = 0
 
-        # โหลดรูปภาพและปรับขนาดให้เต็มจอ
+        # โหลดรูปภาพพื้นหลัง
         self.IMAGE_PATH = "bg.png"
         image = Image.open(self.IMAGE_PATH)
         screen_width = root.winfo_screenwidth()
@@ -21,26 +20,24 @@ class FullScreenImageApp:
         image = image.resize((screen_width, screen_height))
         self.photo = ImageTk.PhotoImage(image)
 
-        # แสดงรูปบน Canvas
         self.canvas = tk.Canvas(root, width=screen_width, height=screen_height, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.create_image(0, 0, image=self.photo, anchor="nw")
 
-        # ----- ตัวแปรนับวันกินยา -----
+        # ----- ตัวแปร -----
         self.eat_days = 0
         self.eatday_text_id = None
 
-        # ----- LINE Notify / LINE OA -----
+        # ----- ตั้งค่าการส่ง LINE -----
         self.CHANNEL_ACCESS_TOKEN = "90PR4QmENVZ8HgX6H9Ee7lrByaFndu4+VBjrC3iUJN0kmXQ7zma/srxGsx4gCQ3bdwPaqS38zcVjtuANVYZoqAgey4AhockHFJ+OK/3K6aGnEa11RuGpM51rDltAT8lXe69f6wbkatpra28B7WLdFAdB04t89/1O/w1cDnyilFU="
         self.USER_ID = "Uaa30a62f505cfb7a3e546ed644e4755f"
 
-        # ----- เวลาแจ้งเตือน -----
-        self.alarm_hour = 20    # 20:00 (2 ทุ่ม)
+        # ----- ตั้งเวลาแจ้งเตือนจริง -----
+        self.alarm_hour = 20
         self.alarm_minute = 0
 
-        # ----- สร้างอ็อบเจ็กต์ FaceVerifier -----
+        # ----- Face Recognition -----
         WEBAPP_URL = "https://script.google.com/macros/s/AKfycbypFJrwXJVcEPNyveBYXplgGsO2CxZLnWvaHQgKbVLbThRwd7vbksIqAItmVtRLD-4v/exec"
-
         self.verifier = FaceVerifier(
             known_image_path="paper.jpeg",
             known_name="Paper",
@@ -54,33 +51,33 @@ class FullScreenImageApp:
             serial_baudrate=115200
         )
 
-        # วาด UI
+        # ----- วาด UI -----
         self.Eat_button()
-        self.Test_button()
         self.EatDay()
         self.DateNow()
         self.AlarmTime()
         self.Time()
+        self.TestAlert_button()  # <<< เพิ่มปุ่มทดสอบการส่ง LINE
 
-        # เริ่มตรวจเวลาแจ้งเตือน
+        # เริ่มตรวจเวลาแจ้งเตือนจริง
         self.check_alarm_time()
 
         # ปิดโปรแกรมเมื่อกด q
         self.root.bind('q', lambda event: self.root.destroy())
 
-    # ---------- ปุ่มกินยา ----------
+    # ---------- ปุ่ม "กินยา" ----------
     def Eat_button(self):
         btn = self.canvas.create_rectangle(450, 540, 820, 670, outline="black", width=self.Outline)
         self.canvas.tag_bind(btn, "<Button-1>", self.on_button_click)
-        self.canvas.create_text(635, 605, text="กดเมื่อกินยาแล้ว", font=("Prompt", 20, "bold"))
 
-    # ---------- ปุ่มทดสอบส่ง LINE ----------
-    def Test_button(self):
-        btn_test = self.canvas.create_rectangle(450, 690, 820, 790, outline="black", width=self.Outline)
-        self.canvas.tag_bind(btn_test, "<Button-1>", self.on_test_click)
-        self.canvas.create_text(635, 740, text="ทดสอบการแจ้งเตือน", font=("Prompt", 20, "bold"))
+    # ---------- ปุ่ม "ทดสอบแจ้งเตือน" ----------
+    def TestAlert_button(self):
+        # วาดปุ่มสี่เหลี่ยมเล็กลงหน่อยทางขวา
+        test_btn = self.canvas.create_rectangle(950, 540, 1280, 670, outline="black", width=self.Outline)
+        self.canvas.create_text(1115, 605, text="ทดสอบแจ้งเตือน", font=("Prompt", 22, "bold"))
+        self.canvas.tag_bind(test_btn, "<Button-1>", self.test_send_alert)
 
-    # ---------- แสดงจำนวนวันที่กินยาแล้ว ----------
+    # ---------- นับวันกินยา ----------
     def EatDay(self):
         self.eat_days = 0
         self.eatday_text_id = self.canvas.create_text(132, 325, text=str(self.eat_days), font=("Prompt", 32, "bold"))
@@ -94,7 +91,7 @@ class FullScreenImageApp:
         current_date = datetime.now().strftime("%d/%m/%Y")
         self.canvas.create_text(280, 180, text=current_date, font=("Prompt", 28, "bold"))
 
-    # ---------- เวลาแจ้งเตือน ----------
+    # ---------- เวลาแจ้งเตือน (20:00) ----------
     def AlarmTime(self):
         alarm_str = f"{self.alarm_hour:02d}:{self.alarm_minute:02d}"
         self.canvas.create_text(1120, 180, text=alarm_str, font=("Prompt", 28, "bold"))
@@ -113,34 +110,37 @@ class FullScreenImageApp:
     def check_alarm_time(self):
         now = datetime.now()
         if now.hour == self.alarm_hour and now.minute == self.alarm_minute:
-            threading.Thread(target=self.send_line_alert).start()
-        self.root.after(60000, self.check_alarm_time)
+            threading.Thread(target=self.send_line_alert, args=("⏰ ถึงเวลาทานยาแล้วนะคะ อย่าลืมกดปุ่มและสแกนหน้านะคะ 💊",)).start()
+        self.root.after(60000, self.check_alarm_time)  # ตรวจทุก 60 วิ
 
-    # ---------- ส่ง LINE แจ้งเตือน ----------
-    def send_line_alert(self):
+    # ---------- ฟังก์ชันส่งข้อความ LINE ----------
+    def send_line_alert(self, message_text):
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.CHANNEL_ACCESS_TOKEN}"
         }
+
         data = {
             "to": self.USER_ID,
             "messages": [
                 {
                     "type": "text",
-                    "text": "⏰ ถึงเวลาทานยาแล้วนะคะ อย่าลืมกดปุ่มและสแกนหน้านะคะ 💊"
+                    "text": message_text
                 }
             ]
         }
+
         response = requests.post("https://api.line.me/v2/bot/message/push",
                                  headers=headers, data=json.dumps(data))
-        print("LINE Notify:", response.status_code, response.text)
 
-    # ---------- ปุ่มทดสอบการแจ้งเตือน ----------
-    def on_test_click(self, event):
-        print("🔔 กำลังทดสอบส่งการแจ้งเตือนไปที่ LINE...")
-        threading.Thread(target=self.send_line_alert).start()
+        print("LINE ส่งแล้ว:", response.status_code, response.text)
 
-    # ---------- ปุ่มกินยา ----------
+    # ---------- ปุ่มทดสอบส่งแจ้งเตือน ----------
+    def test_send_alert(self, event):
+        print("🚀 ทดสอบส่ง LINE แจ้งเตือนทันที...")
+        threading.Thread(target=self.send_line_alert, args=("📢 ทดสอบการแจ้งเตือนสำเร็จค่ะ! ระบบทำงานปกติ 💚",)).start()
+
+    # ---------- Event ปุ่มกินยา ----------
     def on_button_click(self, event):
         print("เริ่มสแกนใบหน้าเพื่อตรวจว่ากินยานะคะ...")
         self.root.update()
@@ -148,6 +148,7 @@ class FullScreenImageApp:
         self.root.deiconify()
         self.root.attributes("-fullscreen", True)
         self.root.update()
+
         if verified:
             print("✅ สแกนผ่าน → นับว่ากินยาเรียบร้อย เพิ่ม EatDay +1")
             self.increment_eatday()
