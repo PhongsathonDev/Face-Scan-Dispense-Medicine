@@ -79,9 +79,7 @@ class FullScreenImageApp:
 
     # ---------- ปุ่ม "ทดสอบแจ้งเตือน" (ขวา) ----------
     def TestAlert_button(self):
-        # พิกัดเดิม: 950, 540, 1280, 670
-        test_btn = self.canvas.create_rectangle(950, 540, 1280, 670, outline="black", width=self.Outline)
-        self.canvas.create_text(1115, 605, text="ทดสอบแจ้งเตือน", font=("Prompt", 22, "bold"))
+        test_btn = self.canvas.create_rectangle(900, 100, 1280, 250, outline="black", width=self.Outline)
         self.canvas.tag_bind(test_btn, "<Button-1>", self.test_send_alert)
 
     # ---------- [ใหม่] ปุ่ม "Manual" (ซ้าย) ----------
@@ -90,49 +88,83 @@ class FullScreenImageApp:
         btn = self.canvas.create_rectangle(0, 560, 150, 690, outline="black", width=self.Outline)
         self.canvas.tag_bind(btn, "<Button-1>", self.show_manual)
 
-    # ---------- [แก้ไข] ฟังก์ชันแสดงหน้า Manual ----------
     def show_manual(self, event):
         print("📖 กำลังเปิดคู่มือการใช้งาน...")
         
         top = tk.Toplevel(self.root)
         top.title("คู่มือการใช้งาน")
         top.attributes("-fullscreen", True)
+
+        # เก็บสถานะภาษาปัจจุบัน (เริ่มที่ TH)
+        # ใช้ list เพื่อให้อ้างอิงและแก้ไขได้ภายในฟังก์ชันย่อย (pass by reference)
+        current_lang_state = ["TH"] 
         
         try:
-            # โหลดรูป ManualTH.png
-            image_path = "ManualTH.png"
-            image = Image.open(image_path)
-            
-            # ปรับขนาดให้เต็มจอ
             screen_width = top.winfo_screenwidth()
             screen_height = top.winfo_screenheight()
-            image = image.resize((screen_width, screen_height))
             
-            photo = ImageTk.PhotoImage(image)
-            
-            # ใช้ Canvas แทน Label เพื่อให้วาดปุ่มสี่เหลี่ยมได้
+            # สร้าง Canvas ใหม่สำหรับหน้านี้
             canvas = tk.Canvas(top, width=screen_width, height=screen_height, highlightthickness=0)
             canvas.pack(fill="both", expand=True)
             
-            # วาดรูปพื้นหลัง
-            canvas.create_image(0, 0, image=photo, anchor="nw")
-            canvas.image = photo  # เก็บ reference กันภาพหาย
+            # ตัวแปรเก็บ ID ของรูปภาพบน Canvas
+            bg_image_id = None
 
+            # --- ฟังก์ชันภายในสำหรับโหลด/เปลี่ยนรูป ---
+            def update_manual_image():
+                nonlocal bg_image_id
+                lang = current_lang_state[0]
+                filename = f"Manual{lang}.png" # จะเป็น ManualTH.png หรือ ManualEN.png
+                
+                try:
+                    img = Image.open(filename)
+                    img = img.resize((screen_width, screen_height))
+                    photo = ImageTk.PhotoImage(img)
+                    
+                    if bg_image_id is None:
+                        # สร้างรูปภาพครั้งแรก
+                        bg_image_id = canvas.create_image(0, 0, image=photo, anchor="nw")
+                        # ส่งรูปไปไว้ข้างหลังสุด เพื่อไม่ให้บังปุ่มที่เราจะวาด (ถึงแม้จะวาดทีหลังแต่กันเหนียว)
+                        canvas.tag_lower(bg_image_id) 
+                    else:
+                        # อัปเดตรูปภาพเดิมถ้ามีอยู่แล้ว
+                        canvas.itemconfig(bg_image_id, image=photo)
+                    
+                    # ต้องเก็บ reference รูปไว้เสมอ ไม่งั้นรูปจะหาย
+                    canvas.image = photo 
+                    print(f"✅ แสดงผลคู่มือ: {filename}")
+
+                except Exception as e:
+                    print(f"❌ ไม่สามารถโหลดรูป {filename} ได้: {e}")
+
+            # 1. แสดงรูปครั้งแรก
+            update_manual_image()
+
+            # 2. สร้างปุ่ม "กลับ" (ตำแหน่งเดิม ซ้ายล่าง)
             close_btn = canvas.create_rectangle(0, 560, 150, 690, outline="black", width=self.Outline)
             canvas.tag_bind(close_btn, "<Button-1>", lambda e: top.destroy())
             
-            languages_btn = canvas.create_rectangle(1050, 20, 1280, 90, outline="black", width=5)
-            canvas.tag_bind(languages_btn, "<Button-1>", lambda e: top.destroy())
+            # 3. สร้างปุ่ม "เปลี่ยนภาษา" (ตำแหน่งเดิม ขวาบน)
+            languages_btn = canvas.create_rectangle(1050, 20, 1280, 90, outline="black", width=self.Outline)
             
-            # ยังคงกด q ที่คีย์บอร์ดเพื่อปิดได้เหมือนเดิม (เผื่อไว้)
+            # ฟังก์ชันสลับภาษาเมื่อกดปุ่ม
+            def toggle_language(e):
+                if current_lang_state[0] == "TH":
+                    current_lang_state[0] = "EN"
+                else:
+                    current_lang_state[0] = "TH"
+                # โหลดรูปใหม่ตามสถานะ
+                update_manual_image()
+
+            # ผูกปุ่มกับฟังก์ชันสลับภาษา
+            canvas.tag_bind(languages_btn, "<Button-1>", toggle_language)
+            
+            # Key bind สำหรับกด q เพื่อออก
             top.bind("q", lambda e: top.destroy())
             
-            print("✅ เปิดคู่มือสำเร็จ (กดปุ่ม 'กลับ' บนหน้าจอเพื่อปิด)")
-            
         except Exception as e:
-            print(f"❌ ไม่สามารถโหลดรูป ManualTH.png ได้: {e}")
-            # กรณี Error ให้แสดงข้อความแทน
-            err_label = tk.Label(top, text=f"ไม่พบไฟล์ ManualTH.png\n{e}", font=("Prompt", 20), fg="red")
+            print(f"❌ Error manual setup: {e}")
+            err_label = tk.Label(top, text=f"Error: {e}", font=("Prompt", 20), fg="red")
             err_label.pack(expand=True)
             err_label.bind("<Button-1>", lambda e: top.destroy())
 
