@@ -14,15 +14,21 @@ class FullScreenImageApp:
 
         # โหลดรูปภาพพื้นหลัง
         self.IMAGE_PATH = "bg.png"
-        image = Image.open(self.IMAGE_PATH)
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        image = image.resize((screen_width, screen_height))
-        self.photo = ImageTk.PhotoImage(image)
+        try:
+            image = Image.open(self.IMAGE_PATH)
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+            image = image.resize((screen_width, screen_height))
+            self.photo = ImageTk.PhotoImage(image)
 
-        self.canvas = tk.Canvas(root, width=screen_width, height=screen_height, highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-        self.canvas.create_image(0, 0, image=self.photo, anchor="nw")
+            self.canvas = tk.Canvas(root, width=screen_width, height=screen_height, highlightthickness=0)
+            self.canvas.pack(fill="both", expand=True)
+            self.canvas.create_image(0, 0, image=self.photo, anchor="nw")
+        except Exception as e:
+            print(f"Error loading background: {e}")
+            # Fallback if bg.png is missing
+            self.canvas = tk.Canvas(root, width=root.winfo_screenwidth(), height=root.winfo_screenheight(), bg="white")
+            self.canvas.pack(fill="both", expand=True)
 
         # ----- ตัวแปร -----
         self.eat_days = 0
@@ -53,12 +59,12 @@ class FullScreenImageApp:
 
         # ----- วาด UI -----
         self.Eat_button()
-        self.Manual()
         self.EatDay()
         self.DateNow()
         self.AlarmTime()
         self.Time()
-        self.TestAlert_button()  # <<< เพิ่มปุ่มทดสอบการส่ง LINE
+        self.TestAlert_button()  # ปุ่มทดสอบแจ้งเตือน (ขวา)
+        self.Manual_button()     # <<< [ใหม่] ปุ่ม Manual (ซ้าย)
 
         # เริ่มตรวจเวลาแจ้งเตือนจริง
         self.check_alarm_time()
@@ -66,21 +72,70 @@ class FullScreenImageApp:
         # ปิดโปรแกรมเมื่อกด q
         self.root.bind('q', lambda event: self.root.destroy())
 
-    # ---------- ปุ่ม "กินยา" ----------
+    # ---------- ปุ่ม "กินยา" (ตรงกลาง) ----------
     def Eat_button(self):
         btn = self.canvas.create_rectangle(450, 540, 820, 670, outline="black", width=self.Outline)
         self.canvas.tag_bind(btn, "<Button-1>", self.on_button_click)
-        
-    def Manual(self):
-        btn = self.canvas.create_rectangle(0, 560, 150, 690, outline="black", width=5)
-        self.canvas.tag_bind(btn, "<Button-1>", self.on_button_click)
 
-    # ---------- ปุ่ม "ทดสอบแจ้งเตือน" ----------
+    # ---------- ปุ่ม "ทดสอบแจ้งเตือน" (ขวา) ----------
     def TestAlert_button(self):
-        # วาดปุ่มสี่เหลี่ยมเล็กลงหน่อยทางขวา
+        # พิกัดเดิม: 950, 540, 1280, 670
         test_btn = self.canvas.create_rectangle(950, 540, 1280, 670, outline="black", width=self.Outline)
         self.canvas.create_text(1115, 605, text="ทดสอบแจ้งเตือน", font=("Prompt", 22, "bold"))
         self.canvas.tag_bind(test_btn, "<Button-1>", self.test_send_alert)
+
+    # ---------- [ใหม่] ปุ่ม "Manual" (ซ้าย) ----------
+    def Manual_button(self):
+
+        btn = self.canvas.create_rectangle(0, 560, 150, 690, outline="black", width=self.Outline)
+        self.canvas.tag_bind(btn, "<Button-1>", self.show_manual)
+
+    # ---------- [แก้ไข] ฟังก์ชันแสดงหน้า Manual ----------
+    def show_manual(self, event):
+        print("📖 กำลังเปิดคู่มือการใช้งาน...")
+        
+        top = tk.Toplevel(self.root)
+        top.title("คู่มือการใช้งาน")
+        top.attributes("-fullscreen", True)
+        
+        try:
+            # โหลดรูป ManualTH.png
+            image_path = "ManualTH.png"
+            image = Image.open(image_path)
+            
+            # ปรับขนาดให้เต็มจอ
+            screen_width = top.winfo_screenwidth()
+            screen_height = top.winfo_screenheight()
+            image = image.resize((screen_width, screen_height))
+            
+            photo = ImageTk.PhotoImage(image)
+            
+            # ใช้ Canvas แทน Label เพื่อให้วาดปุ่มสี่เหลี่ยมได้
+            canvas = tk.Canvas(top, width=screen_width, height=screen_height, highlightthickness=0)
+            canvas.pack(fill="both", expand=True)
+            
+            # วาดรูปพื้นหลัง
+            canvas.create_image(0, 0, image=photo, anchor="nw")
+            canvas.image = photo  # เก็บ reference กันภาพหาย
+
+
+            close_btn = canvas.create_rectangle(0, 560, 150, 690, outline="black", width=self.Outline)
+
+
+            # ผูก Event คลิกที่ปุ่มสี่เหลี่ยมนี้ -> ให้ปิดหน้าต่าง (top.destroy)
+            canvas.tag_bind(close_btn, "<Button-1>", lambda e: top.destroy())
+            
+            # ยังคงกด q ที่คีย์บอร์ดเพื่อปิดได้เหมือนเดิม (เผื่อไว้)
+            top.bind("q", lambda e: top.destroy())
+            
+            print("✅ เปิดคู่มือสำเร็จ (กดปุ่ม 'กลับ' บนหน้าจอเพื่อปิด)")
+            
+        except Exception as e:
+            print(f"❌ ไม่สามารถโหลดรูป ManualTH.png ได้: {e}")
+            # กรณี Error ให้แสดงข้อความแทน
+            err_label = tk.Label(top, text=f"ไม่พบไฟล์ ManualTH.png\n{e}", font=("Prompt", 20), fg="red")
+            err_label.pack(expand=True)
+            err_label.bind("<Button-1>", lambda e: top.destroy())
 
     # ---------- นับวันกินยา ----------
     def EatDay(self):
@@ -134,29 +189,30 @@ class FullScreenImageApp:
                 }
             ]
         }
-
-        response = requests.post("https://api.line.me/v2/bot/message/push",
-                                 headers=headers, data=json.dumps(data))
-
-        print("LINE ส่งแล้ว:", response.status_code, response.text)
+        try:
+            response = requests.post("https://api.line.me/v2/bot/message/push",
+                                     headers=headers, data=json.dumps(data), timeout=5)
+            print("LINE ส่งแล้ว:", response.status_code)
+        except Exception as e:
+            print("Error sending LINE:", e)
 
     # ---------- ปุ่มทดสอบส่งแจ้งเตือน ----------
     def test_send_alert(self, event):
         print("🚀 ทดสอบส่ง LINE แจ้งเตือนทันที...")
-        # ส่ง LINE ใน Thread แยก
         threading.Thread(target=self.send_line_alert, args=("โปรดรับประทานยา ในเวลานี้ครับ 20.00",)).start()
         
-        # --- ✨ เพิ่มส่วนนี้ ---
         print("➡️  ทดสอบส่งคำสั่ง 'a' ไปยัง ESP32...")
-        # เรียกใช้เมธอดจาก self.verifier เพื่อส่ง Serial
         self.verifier.send_command_to_esp32("a")
-        # ---------------------
 
     # ---------- Event ปุ่มกินยา ----------
     def on_button_click(self, event):
         print("เริ่มสแกนใบหน้าเพื่อตรวจว่ากินยานะคะ...")
         self.root.update()
+        
+        # เรียก Face Verification
         verified = self.verifier.run()
+        
+        # เมื่อสแกนเสร็จ (หรือกด q) ให้กลับมาทำหน้าจอ Fullscreen ใหม่ (กันหน้าจอหลุด)
         self.root.deiconify()
         self.root.attributes("-fullscreen", True)
         self.root.update()
