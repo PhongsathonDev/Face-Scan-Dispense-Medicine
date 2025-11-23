@@ -23,6 +23,13 @@ def register_new_face(filename="patient.jpeg"):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
+    # ========================================================
+    # [เพิ่มเติม] ตั้งค่าหน้าจอ Full Screen (เหมือน Facescan.py)
+    # ========================================================
+    window_name = "Register New Face"
+    cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
+    cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
     print("--------------------------------------------------")
     print("📷 ระบบถ่ายภาพอัตโนมัติ (Auto Selfie)")
     print("--------------------------------------------------")
@@ -111,12 +118,12 @@ def register_new_face(filename="patient.jpeg"):
 
                     # Effect แฟลชและโชว์รูป
                     cv2.rectangle(display_frame, (0,0), (width, height), (255, 255, 255), -1)
-                    cv2.imshow("Register New Face", display_frame)
+                    cv2.imshow(window_name, display_frame) # แก้ไขชื่อหน้าต่าง
                     cv2.waitKey(100)
                     
                     cv2.putText(display_frame, "SAVED!", (width//2 - 150, height//2), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 5)
-                    cv2.imshow("Register New Face", display_frame)
+                    cv2.imshow(window_name, display_frame) # แก้ไขชื่อหน้าต่าง
                     cv2.waitKey(2000)
                     break # ออกจากลูป จบโปรแกรม
                 else:
@@ -129,7 +136,8 @@ def register_new_face(filename="patient.jpeg"):
         y1 = (height - box_size) // 2
         cv2.rectangle(display_frame, (x1, y1), (x1 + box_size, y1 + box_size), (161, 214, 162), 2)
 
-        cv2.imshow("Register New Face", display_frame)
+        # แก้ไขชื่อหน้าต่างให้ใช้ตัวแปร window_name
+        cv2.imshow(window_name, display_frame)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
