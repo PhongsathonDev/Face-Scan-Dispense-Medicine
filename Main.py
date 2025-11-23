@@ -46,6 +46,7 @@ class FullScreenImageApp:
         self.eatday_text_id = None
         self.time_text_id = None
         self.manual_lang = "TH"  # ภาษาเริ่มต้นของคู่มือ
+        self.is_scanning = False # ป้องกันการกดปุ่มรัวๆ
 
         # ตั้งค่า LINE
         self.CHANNEL_ACCESS_TOKEN = "90PR4QmENVZ8HgX6H9Ee7lrByaFndu4+VBjrC3iUJN0kmXQ7zma/srxGsx4gCQ3bdwPaqS38zcVjtuANVYZoqAgey4AhockHFJ+OK/3K6aGnEa11RuGpM51rDltAT8lXe69f6wbkatpra28B7WLdFAdB04t89/1O/w1cDnyilFU="
@@ -235,9 +236,18 @@ class FullScreenImageApp:
         self.verifier.send_command_to_esp32("a")
 
     def on_button_click(self, event):
+        if self.is_scanning:
+            print("⏳ กำลังสแกนอยู่ กรุณารอสักครู่...")
+            return
+
+        self.is_scanning = True
         print("📷 เริ่มสแกนใบหน้า...")
         
         # เรียกสแกนใบหน้า (จะเปิดหน้าต่าง OpenCV ขึ้นมาทับ)
+        # ใช้ after เล็กน้อยเพื่อให้ UI อัปเดตก่อนเข้า blocking call (เผื่อมี animation ปุ่ม)
+        self.root.after(10, self._run_scan_process)
+
+    def _run_scan_process(self):
         verified = self.verifier.run()
         
         # เมื่อสแกนเสร็จ กลับมา Focus ที่หน้าจอหลักให้แน่นหนา
@@ -249,6 +259,9 @@ class FullScreenImageApp:
             self.increment_eatday()
         else:
             print("❌ ไม่ผ่าน")
+        
+        # หน่วงเวลา 1 วินาทีก่อนให้กดใหม่ได้ (Cooldown)
+        self.root.after(1000, lambda: setattr(self, 'is_scanning', False))
 
 if __name__ == "__main__":
     root = tk.Tk()
