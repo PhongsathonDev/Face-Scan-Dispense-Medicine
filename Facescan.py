@@ -303,12 +303,12 @@ class FaceVerifier:
             self.close_camera()
 
 if __name__ == "__main__":
-    WEBAPP_URL = "YOUR_GOOGLE_SCRIPT_URL_HERE"
+    WEBAPP_URL = "https://script.google.com/macros/s/AKfycbypFJrwXJVcEPNyveBYXplgGsO2CxZLnWvaHQgKbVLbThRwd7vbksIqAItmVtRLD-4v/exec"
     verifier = FaceVerifier(
-        known_image_path="paper.jpeg",
-        known_name="Paper",
+        known_image_path="patient.jpeg",
+        known_name="patient",
         webapp_url=WEBAPP_URL,
         sheet_name="Patient",
-        face_id="user_001"
+        face_id="patient"
     )
     verifier.run()
