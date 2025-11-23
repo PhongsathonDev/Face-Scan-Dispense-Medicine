@@ -1,142 +1,153 @@
 import cv2
 import face_recognition
-import os
+import mediapipe as mp
 import time
-import numpy as np
+import os
 
-def register_new_face_with_nod(filename="patient.jpeg"):
-    # --- ตั้งค่าความไวของการพยักหน้า (ปรับแก้ได้ตรงนี้) ---
-    NOD_THRESHOLD = 15       # ค่าความเปลี่ยนแปลงของแกน Y ที่ถือว่าพยักหน้า (ค่ายิ่งน้อยยิ่งไวยิ่งติดง่าย)
-    NOD_FRAMES = 10          # จำนวนเฟรมที่จะเช็คย้อนหลัง (เพื่อดูการเคลื่อนไหว)
-    COUNTDOWN_TIME = 3       # เวลาในการนับถอยหลัง (วินาที)
-    # ------------------------------------------------
+def register_new_face(filename="patient.jpeg"):
+    # --- ตั้งค่า MediaPipe สำหรับตรวจจับมือ ---
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(
+        max_num_hands=1,            # ตรวจจับแค่มือเดียวก็พอ
+        min_detection_confidence=0.7,
+        min_tracking_confidence=0.5
+    )
+    mp_draw = mp.solutions.drawing_utils
 
+    # --- ตัวแปรสำหรับตัวจับเวลา (Timer) ---
+    gesture_start_time = 0
+    capture_delay = 3.0  # ต้องถือค้างไว้ 3 วินาที
+    is_counting = False  # สถานะว่ากำลังนับถอยหลังอยู่ไหม
+
+    # เปิดกล้อง
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
     print("--------------------------------------------------")
-    print("📷 ระบบลงทะเบียนใบหน้า (Head Nod Edition)")
+    print("📷 ระบบลงทะเบียนใบหน้า (Gesture Control)")
     print("--------------------------------------------------")
-    print("  👉 'พยักหน้า' ขึ้น-ลง เพื่อเริ่มนับถอยหลังและบันทึก")
-    print("  👉 กด 'q' เพื่อยกเลิก (Quit)")
+    print("  🖐️  ยกมือแบ 5 นิ้วค้างไว้ 3 วินาที เพื่อบันทึกภาพ")
+    print("  👉 กด 'q' เพื่อยกเลิก")
     print("--------------------------------------------------")
-
-    # ตัวแปรสำหรับตรวจจับการพยักหน้า
-    nose_y_history = []
-    
-    # ตัวแปรสำหรับระบบนับถอยหลัง
-    is_counting_down = False
-    countdown_start_time = 0
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("❌ ไม่สามารถเปิดกล้องได้")
             break
 
-        # กลับด้านภาพเพื่อให้เหมือนกระจก (Mirror) จะได้กะระยะง่าย
+        # กลับด้านภาพ (Mirror) เพื่อให้ควบคุมง่ายขึ้นเวลาชูมือ
         frame = cv2.flip(frame, 1)
         
         display_frame = frame.copy()
         height, width, _ = frame.shape
-
-        # ลดขนาดภาพลง 1/4 เฉพาะตอนประมวลผล AI เพื่อให้ FPS ลื่นไหล (การบันทึกยังชัดเท่าเดิม)
-        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-        # 1. ค้นหาใบหน้าและจุด Landmark
-        face_locations = face_recognition.face_locations(rgb_small_frame)
         
-        # ถ้ายังไม่เริ่มนับถอยหลัง ให้ตรวจจับการพยักหน้า
-        if not is_counting_down:
-            if len(face_locations) > 0:
-                # หา Landmark (ตา จมูก ปาก)
-                face_landmarks = face_recognition.face_landmarks(rgb_small_frame, face_locations)
+        # แปลงสีเป็น RGB สำหรับ MediaPipe และ Face Recognition
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # --- 1. ตรวจจับมือ (Hand Detection) ---
+        results = hands.process(rgb_frame)
+        
+        hand_detected = False
+        finger_count = 0
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # วาดเส้นมือลงในหน้าจอ (เพื่อให้รู้ว่ากล้องเห็นมือ)
+                mp_draw.draw_landmarks(display_frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 
-                if face_landmarks:
-                    # ใช้ตำแหน่ง "ปลายจมูก" (Nose Tip) จุดแรกในการเช็ค
-                    # ต้องคูณ 4 กลับ เพราะเราย่อภาพไป 0.25
-                    nose_tip = face_landmarks[0]['nose_tip'][0]
-                    nose_y = nose_tip[1] * 4 
+                # นับนิ้วที่ชูขึ้น (Logic ง่ายๆ: ปลายนิ้วอยู่สูงกว่าข้อต่อนิ้ว)
+                # Landmark ID: 4=Thumb, 8=Index, 12=Middle, 16=Ring, 20=Pinky
+                lm_list = hand_landmarks.landmark
+                
+                # ตรวจสอบ 4 นิ้ว (ชี้, กลาง, นาง, ก้อย) - เช็คแกน Y (ค่ายิ่งน้อยคือยิ่งสูง)
+                # *หมายเหตุ: นิ้วโป้งเช็คยากกว่าเล็กน้อย จึงเช็คแค่นิ้วชี้-ก้อย ถ้าขึ้นหมดถือว่าแบมือ
+                fingers_up = []
+                
+                # ตรวจนิ้วชี้ถึงก้อย (Tips id: 8, 12, 16, 20 | PIP Joints id: 6, 10, 14, 18)
+                tips_ids = [8, 12, 16, 20]
+                pip_ids = [6, 10, 14, 18]
 
-                    # เก็บประวัติแกน Y ของจมูก
-                    nose_y_history.append(nose_y)
-                    if len(nose_y_history) > NOD_FRAMES:
-                        nose_y_history.pop(0)
+                for tip, pip in zip(tips_ids, pip_ids):
+                    if lm_list[tip].y < lm_list[pip].y: # นิ้วชี้ขึ้น
+                        fingers_up.append(True)
+                    else:
+                        fingers_up.append(False)
+                
+                # ถ้านิ้วชี้ กลาง นาง ก้อย ชูขึ้นหมด (>= 4 นิ้ว) ถือว่าแบมือ
+                if fingers_up.count(True) == 4:
+                    hand_detected = True
 
-                    # คำนวณส่วนต่างของตำแหน่งสูงสุดและต่ำสุดในช่วงเวลาสั้นๆ
-                    if len(nose_y_history) == NOD_FRAMES:
-                        movement = max(nose_y_history) - min(nose_y_history)
-                        
-                        # ถ้ามีการขยับขึ้นลงมากกว่าค่าที่ตั้งไว้ -> ถือว่าพยักหน้า
-                        if movement > NOD_THRESHOLD:
-                            print("💡 ตรวจพบการพยักหน้า! เริ่มนับถอยหลัง...")
-                            is_counting_down = True
-                            countdown_start_time = time.time()
-                            nose_y_history = [] # เคลียร์ค่าป้องกันการกดซ้ำ
-
-                # วาดกรอบหน้า (สีขาว) ให้รู้ว่าเจอหน้าแล้ว
-                for (top, right, bottom, left) in face_locations:
-                    top *= 4; right *= 4; bottom *= 4; left *= 4
-                    cv2.rectangle(display_frame, (left, top), (right, bottom), (255, 255, 255), 2)
-
-            else:
-                # ถ้าไม่เจอหน้า ให้เคลียร์ประวัติ (กัน error)
-                nose_y_history = []
-                cv2.putText(display_frame, "Please show your face", (50, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-        # 2. วาด Interface
-        # กรอบสี่เหลี่ยมกลางหน้าจอ (Zone ที่ควรอยู่)
-        box_size = 400
-        x1, y1 = (width - box_size) // 2, (height - box_size) // 2
-        x2, y2 = x1 + box_size, y1 + box_size
-        
-        color = (161, 214, 162) if not is_counting_down else (0, 165, 255) # เปลี่ยนสีเป็นส้มตอนนับถอยหลัง
-        cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
-
-        if not is_counting_down:
-            cv2.putText(display_frame, "Nod to Save", (x1 + 110, y1 - 20), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        
-        # 3. Logic การนับถอยหลังและบันทึก
-        if is_counting_down:
-            elapsed_time = time.time() - countdown_start_time
-            time_left = COUNTDOWN_TIME - int(elapsed_time)
+        # --- 2. Logic การนับเวลา (Timer Logic) ---
+        if hand_detected:
+            if not is_counting:
+                gesture_start_time = time.time() # เริ่มจับเวลา
+                is_counting = True
+            
+            # คำนวณเวลาที่ผ่านไป
+            elapsed_time = time.time() - gesture_start_time
+            time_left = capture_delay - elapsed_time
 
             if time_left > 0:
-                # แสดงตัวเลขนับถอยหลังกลางจอ
-                text_size = cv2.getTextSize(str(time_left), cv2.FONT_HERSHEY_SIMPLEX, 10, 20)[0]
-                text_x = (width - text_size[0]) // 2
-                text_y = (height + text_size[1]) // 2
-                cv2.putText(display_frame, str(time_left), (text_x, text_y), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 10, (0, 255, 255), 20)
-            else:
-                # --- หมดเวลา: บันทึกภาพ ---
-                cv2.imwrite(filename, frame)
-                print(f"✅ บันทึกรูปภาพเรียบร้อย! ({filename})")
+                # แสดงกราฟิกนับถอยหลัง
+                progress = int((elapsed_time / capture_delay) * 100)
+                cv2.putText(display_frame, f"HOLD STILL: {int(time_left)+1}", (50, 100), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 165, 255), 3)
                 
-                # แสดงข้อความ Saved
-                cv2.putText(display_frame, "SAVED!", (width//2 - 180, height//2), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 5)
-                cv2.imshow("Register New Face", display_frame)
-                cv2.waitKey(2000) # โชว์ค้างไว้ 2 วินาที
-                break
+                # วาดหลอด Progress Bar ด้านบน
+                cv2.rectangle(display_frame, (50, 50), (50 + progress * 3, 70), (0, 255, 0), -1)
+                cv2.rectangle(display_frame, (50, 50), (350, 70), (255, 255, 255), 2)
+            
+            else:
+                # --- 3. เวลาครบกำหนด! ทำการบันทึก (Trigger Save) ---
+                print("📸 กำลังตรวจสอบใบหน้าเพื่อบันทึก...")
+                
+                # ตรวจหาใบหน้า
+                face_locations = face_recognition.face_locations(rgb_frame)
+
+                if len(face_locations) > 0:
+                    # บันทึกภาพ (ใช้ภาพต้นฉบับ frame ที่ไม่มีกราฟิกทับ)
+                    cv2.imwrite(filename, frame)
+                    print(f"✅ บันทึกเรียบร้อย! ({filename})")
+                    
+                    # เอฟเฟกต์หน้าจอ Flash สีขาว
+                    cv2.rectangle(display_frame, (0,0), (width, height), (255, 255, 255), -1)
+                    cv2.imshow("Register New Face", display_frame)
+                    cv2.waitKey(100)
+                    
+                    # แสดงข้อความ Saved แล้วจบ
+                    cv2.putText(display_frame, "SAVED!", (width//2 - 100, height//2), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
+                    cv2.imshow("Register New Face", display_frame)
+                    cv2.waitKey(2000)
+                    break
+                else:
+                    # เวลาครบแต่ไม่เจอหน้า
+                    cv2.putText(display_frame, "NO FACE!", (50, 150), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+                    # รีเซ็ตเวลา เพื่อให้ลองใหม่
+                    gesture_start_time = time.time() 
+        else:
+            # ถ้าเอามือลง หรือมือไม่นิ่ง -> รีเซ็ต
+            is_counting = False
+            gesture_start_time = 0
+            cv2.putText(display_frame, "Show Hand to Capture", (50, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2)
+
+        # วาดกรอบใบหน้า (ไกด์ไลน์)
+        box_size = 400
+        x1 = (width - box_size) // 2
+        y1 = (height - box_size) // 2
+        cv2.rectangle(display_frame, (x1, y1), (x1 + box_size, y1 + box_size), (161, 214, 162), 2)
 
         cv2.imshow("Register New Face", display_frame)
         
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
-            print("❌ ยกเลิก")
             break
-        # เผื่ออยากกด s บันทึกเองเหมือนเดิม
-        elif key == ord('s') and not is_counting_down:
-            is_counting_down = True
-            countdown_start_time = time.time()
 
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    register_new_face_with_nod()
+    register_new_face()
