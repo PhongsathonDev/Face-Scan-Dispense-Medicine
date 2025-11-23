@@ -280,10 +280,10 @@ class FaceVerifier:
 if __name__ == "__main__":
     WEBAPP_URL = "https://script.google.com/macros/s/AKfycbypFJrwXJVcEPNyveBYXplgGsO2CxZLnWvaHQgKbVLbThRwd7vbksIqAItmVtRLD-4v/exec"
     verifier = FaceVerifier(
-        known_image_path="paper.jpeg",
-        known_name="Paper",
+        known_image_path="patient.jpeg",
+        known_name="patient",
         webapp_url=WEBAPP_URL,
         sheet_name="Patient",
-        face_id="Paper"
+        face_id="patient"
     )
     verifier.run()
