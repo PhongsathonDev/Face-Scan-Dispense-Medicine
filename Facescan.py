@@ -3,8 +3,7 @@ import cv2
 import numpy as np
 import time
 import requests
-import serial  # <<< เพิ่มอันนี้สำหรับคุยกับ ESP32
-
+import serial
 
 class FaceVerifier:
     def __init__(
@@ -17,21 +16,9 @@ class FaceVerifier:
         webapp_url: str | None = None,
         sheet_name: str = "sheet1",
         face_id: str = "user_001",
-        serial_port: str | None = "/dev/ttyUSB0",   # <<< พอร์ต ESP32
-        serial_baudrate: int = 115200               # <<< ต้องตรงกับ ESP32
+        serial_port: str | None = "/dev/ttyUSB0",
+        serial_baudrate: int = 115200
     ):
-        """
-        known_image_path : path รูปต้นแบบ
-        known_name       : ชื่อที่จะแสดงเมื่อรู้จักใบหน้า
-        tolerance        : ยิ่งน้อยยิ่งเข้มงวด
-        hold_seconds     : ต้องมองตรงค้างกี่วินาทีก่อนจะถือว่าผ่าน
-        camera_index     : index กล้อง (0 = กล้องหลัก)
-        webapp_url       : URL Google Apps Script Web App
-        sheet_name       : ชื่อชีตใน Google Sheet
-        face_id          : รหัสประจำตัวใบหน้า
-        serial_port      : พอร์ตอนุกรมที่ต่อ ESP32 (เช่น /dev/ttyUSB0 หรือ /dev/ttyACM0)
-        serial_baudrate  : baudrate ของ Serial (ต้องตรงกับ ESP32)
-        """
         self.known_image_path = known_image_path
         self.known_name = known_name
         self.tolerance = tolerance
@@ -50,7 +37,6 @@ class FaceVerifier:
         if self.serial_port is not None:
             try:
                 self.ser = serial.Serial(self.serial_port, self.serial_baudrate, timeout=1)
-                # รอให้ ESP32 รีเซ็ตตัวเองหลังเชื่อมต่อ
                 time.sleep(2)
                 print(f"✅ เปิดพอร์ต Serial ไป ESP32 ที่ {self.serial_port} เรียบร้อย")
             except Exception as e:
@@ -63,14 +49,13 @@ class FaceVerifier:
         # state เวลาการมองค้าง
         self.hold_start_time = None
         self.verified = False
+        self.scan_line_pos = 0     # สำหรับ Animation เส้นสแกน
+        self.scan_direction = 1    # ทิศทางเส้นสแกน
 
-        # ตัวจัดการกล้อง
         self.video_capture = None
 
     # ---------- ส่วนส่งไป Google Sheet ----------
-
     def send_log_to_sheet(self, note: str = "Face verified") -> bool:
-        """ส่งข้อมูลไปยัง Google Sheet ผ่าน Web App — คืนค่า True ถ้าสำเร็จ"""
         if not self.webapp_url:
             print("⚠️ ยังไม่ได้ตั้งค่า WEBAPP_URL ข้ามการส่ง Google Sheet")
             return False
@@ -78,7 +63,6 @@ class FaceVerifier:
         payload = {
             "sheet": self.sheet_name,
             "data": {
-                # Timestamp ว่างไว้ให้ Apps Script ใส่เอง
                 "Date": "",
                 "Time": "",
                 "Name": self.known_name,
@@ -90,23 +74,16 @@ class FaceVerifier:
 
         try:
             response = requests.post(self.webapp_url, json=payload, timeout=10)
-            print("ส่งไป Google Sheet → Status code:", response.status_code)
-            print("Response text:", response.text)
-
-            # ถ้าอยากเข้มงวดหน่อย ถือว่าสำเร็จเฉพาะ status 200 เท่านั้น
+            print("Google Sheet Status:", response.status_code)
             return response.status_code == 200
         except Exception as e:
             print("❌ ส่งข้อมูลไป Google Sheet ไม่สำเร็จ:", e)
             return False
 
     # ---------- ส่วนคุยกับ ESP32 ----------
-
     def send_command_to_esp32(self, cmd: str = "f"):
-        """ส่งคำสั่งตัวอักษรไป ESP32 ผ่าน Serial"""
         if self.ser is None:
-            print("⚠️ ยังไม่ได้เปิด Serial ไป ESP32 หรือเปิดไม่สำเร็จ")
             return
-
         try:
             self.ser.write(cmd.encode("utf-8"))
             self.ser.flush()
@@ -114,19 +91,22 @@ class FaceVerifier:
         except Exception as e:
             print("❌ ส่งคำสั่งไป ESP32 ไม่สำเร็จ:", e)
 
-    # ---------- ส่วน Face Recognition ----------
-
+    # ---------- ส่วน Face Recognition Core ----------
     def _load_known_faces(self):
-        image = face_recognition.load_image_file(self.known_image_path)
-        encoding = face_recognition.face_encodings(image)[0]
-
-        known_face_encodings = [encoding]
-        known_face_names = [self.known_name]
-
-        return known_face_encodings, known_face_names
+        try:
+            image = face_recognition.load_image_file(self.known_image_path)
+            encoding = face_recognition.face_encodings(image)[0]
+            return [encoding], [self.known_name]
+        except Exception as e:
+            print(f"❌ Error loading known face: {e}")
+            return [], []
 
     def open_camera(self):
         self.video_capture = cv2.VideoCapture(self.camera_index)
+        # ตั้งค่าความละเอียดกล้องให้ชัดขึ้น (ถ้ากล้องรองรับ)
+        self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        
         if not self.video_capture.isOpened():
             raise RuntimeError("ไม่สามารถเปิดกล้องได้")
 
@@ -135,15 +115,8 @@ class FaceVerifier:
             self.video_capture.release()
         cv2.destroyAllWindows()
 
-        # ปิด Serial ด้วย
-        # if self.ser is not None:
-        #     try:
-        #         self.ser.close()
-        #         print("🔌 ปิดพอร์ต Serial ESP32 แล้ว")
-        #     except Exception as e:
-        #         print("⚠️ ปิด Serial ESP32 มีปัญหา:", e)
-
-    def _recognize_faces(self, frame):
+    def _process_frame(self, frame):
+        """ประมวลผลใบหน้าและคืนค่าตำแหน่ง+ชื่อ (ไม่วาดรูปที่นี่)"""
         # ย่อภาพเพื่อให้เร็วขึ้น
         small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
         rgb_small_frame = np.ascontiguousarray(small_frame[:, :, ::-1])
@@ -160,39 +133,122 @@ class FaceVerifier:
                 face_encoding,
                 tolerance=self.tolerance
             )
-
             name = "Unknown"
             face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
-            best_match_index = np.argmin(face_distances)
-
-            if matches[best_match_index] and face_distances[best_match_index] < self.tolerance:
-                name = self.known_face_names[best_match_index]
-                recognized_this_frame = True
+            
+            if len(face_distances) > 0:
+                best_match_index = np.argmin(face_distances)
+                if matches[best_match_index] and face_distances[best_match_index] < self.tolerance:
+                    name = self.known_face_names[best_match_index]
+                    recognized_this_frame = True
 
             face_names.append(name)
 
-        # วาดกรอบชื่อ
+        return face_locations, face_names, recognized_this_frame
+
+    # ---------- ส่วน UI / Drawing (ปรับปรุงใหม่ Modern Style) ----------
+    def _draw_modern_ui(self, frame, face_locations, face_names):
+        height, width, _ = frame.shape
+        
+        # สี (BGR)
+        COLOR_CYAN = (255, 255, 0)      # กำลังสแกน
+        COLOR_GREEN = (0, 255, 0)       # ผ่าน
+        COLOR_RED = (0, 0, 255)         # ไม่ผ่าน/Unknown
+        COLOR_WHITE = (255, 255, 255)
+        
+        # 1. วาด HUD Overlay (เส้นขอบจอ + Text มุมจอ)
+        cv2.putText(frame, "AI MEDICINE DISPENSER", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_CYAN, 2)
+        cv2.putText(frame, time.strftime("%H:%M:%S"), (width - 150, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 2)
+        
+        # เส้นขอบจอบางๆ
+        cv2.line(frame, (20, 60), (100, 60), COLOR_CYAN, 2)
+        cv2.line(frame, (width-120, 60), (width-20, 60), COLOR_CYAN, 2)
+
+        # 2. วาดกรอบใบหน้าและ Effect
         for (top, right, bottom, left), name in zip(face_locations, face_names):
+            # Scale กลับมาขนาดจริง (เพราะตอน process เราย่อ 0.25)
             top *= 4
             right *= 4
             bottom *= 4
             left *= 4
+            
+            # เลือกสีตามสถานะ
+            color = COLOR_CYAN
+            if name == "Unknown":
+                color = COLOR_RED
+            if self.verified:
+                color = COLOR_GREEN
 
-            color = (0, 0, 255)  # แดง = Unknown
-            if name != "Unknown":
-                color = (0, 255, 0)  # เขียว = รู้จัก
+            # --- A. วาดกรอบแบบ Tech (มุม 4 ด้าน) ---
+            line_len = int((right - left) * 0.2)
+            thickness = 3
+            
+            # มุมบนซ้าย
+            cv2.line(frame, (left, top), (left + line_len, top), color, thickness)
+            cv2.line(frame, (left, top), (left, top + line_len), color, thickness)
+            # มุมบนขวา
+            cv2.line(frame, (right, top), (right - line_len, top), color, thickness)
+            cv2.line(frame, (right, top), (right, top + line_len), color, thickness)
+            # มุมล่างซ้าย
+            cv2.line(frame, (left, bottom), (left + line_len, bottom), color, thickness)
+            cv2.line(frame, (left, bottom), (left, bottom - line_len), color, thickness)
+            # มุมล่างขวา
+            cv2.line(frame, (right, bottom), (right - line_len, bottom), color, thickness)
+            cv2.line(frame, (right, bottom), (right, bottom - line_len), color, thickness)
 
-            cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-            cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
+            # --- B. เส้นสแกน (Scan Line Animation) ---
+            if not self.verified:
+                scan_height = bottom - top
+                self.scan_line_pos += (5 * self.scan_direction) # ความเร็วเส้น
+                
+                # กลับทิศทางเมื่อสุดขอบ
+                if self.scan_line_pos > scan_height:
+                    self.scan_direction = -1
+                elif self.scan_line_pos < 0:
+                    self.scan_direction = 1
+                
+                scan_y = top + self.scan_line_pos
+                # วาดเส้นสแกนจางๆ
+                cv2.line(frame, (left, scan_y), (right, scan_y), color, 2)
+                # วาดเงาเส้นสแกน (Glow effect จำลอง)
+                cv2.addWeighted(frame[scan_y:scan_y+1, left:right], 0.5, 
+                                np.full((1, right-left, 3), color, dtype=np.uint8), 0.5, 0, 
+                                frame[scan_y:scan_y+1, left:right])
 
-            font = cv2.FONT_HERSHEY_DUPLEX
-            cv2.putText(frame, name, (left + 6, bottom - 6),
-                        font, 1.0, (255, 255, 255), 1)
+            # --- C. ชื่อและสถานะ ---
+            # พื้นหลังชื่อ
+            cv2.rectangle(frame, (left, bottom + 10), (right, bottom + 40), color, cv2.FILLED)
+            # ชื่อ Text
+            font_scale = 0.6
+            text_size = cv2.getTextSize(name, cv2.FONT_HERSHEY_DUPLEX, font_scale, 1)[0]
+            text_x = left + (right - left - text_size[0]) // 2
+            cv2.putText(frame, name, (text_x, bottom + 32), cv2.FONT_HERSHEY_DUPLEX, font_scale, (0,0,0), 1)
 
-        return frame, recognized_this_frame
+        # 3. Progress Bar (แถบโหลดตรงกลางด้านบน)
+        if self.hold_start_time is not None and not self.verified:
+            elapsed = time.time() - self.hold_start_time
+            progress = min(elapsed / self.hold_seconds, 1.0) # 0.0 to 1.0
+            
+            bar_width = 400
+            bar_height = 20
+            bar_x = (width - bar_width) // 2
+            bar_y = 100
+            
+            # วาดกรอบ Bar
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (50, 50, 50), -1)
+            # วาดเนื้อ Bar
+            fill_width = int(bar_width * progress)
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height), COLOR_CYAN, -1)
+            
+            cv2.putText(frame, "VERIFYING...", (bar_x, bar_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_CYAN, 1)
+
+        elif self.verified:
+            # ข้อความ Success ใหญ่ๆ
+            cv2.putText(frame, "ACCESS GRANTED", (width//2 - 150, height//2), cv2.FONT_HERSHEY_DUPLEX, 1.5, COLOR_GREEN, 2)
+            cv2.rectangle(frame, (0,0), (width, height), (0, 255, 0), 10) # ขอบจอเขียว
 
     def _update_hold_state(self, recognized_this_frame: bool):
-        """อัปเดตสถานะเวลามองค้าง + เช็กว่าครบ hold_seconds หรือยัง"""
+        """Logic จับเวลา"""
         if recognized_this_frame:
             if self.hold_start_time is None:
                 self.hold_start_time = time.time()
@@ -201,65 +257,47 @@ class FaceVerifier:
                 if elapsed >= self.hold_seconds and not self.verified:
                     self.verified = True
                     print("✅ สแกนใบหน้าผ่านแล้ว")
-
-                    # 1) ส่ง Log ไป Google Sheet
                     ok = self.send_log_to_sheet(note="Face verified from camera")
-
-                    # 2) ถ้าส่งสำเร็จค่อยสั่ง ESP32 ทำงาน
                     if ok:
                         self.send_command_to_esp32("f")
-                    else:
-                        print("⚠️ ไม่ส่งคำสั่งไป ESP32 เพราะส่ง Google Sheet ไม่สำเร็จ")
         else:
             self.hold_start_time = None
 
-    def _draw_status_text(self, frame):
-        font = cv2.FONT_HERSHEY_DUPLEX
-
-        if self.hold_start_time is not None and not self.verified:
-            elapsed = time.time() - self.hold_start_time
-            text = f"Hold still: {elapsed:.1f}/{self.hold_seconds:.0f} sec"
-            cv2.putText(frame, text, (30, 40), font, 0.8, (0, 255, 255), 2)
-        elif self.verified:
-            cv2.putText(frame, "Face Verified", (30, 40), font, 0.8, (0, 255, 0), 2)
-
-        return frame
-
     def run(self):
-        # รีเซ็ตสถานะทุกครั้งที่เรียก
         self.hold_start_time = None
         self.verified = False
+        self.scan_line_pos = 0
 
         self.open_camera()
-        print("กำลังเปิดกล้อง... มองตรงเข้ากล้องให้ครบเวลาที่กำหนด")
-        print("กด 'q' เพื่อยกเลิก")
+        print("📷 เริ่มระบบสแกนใบหน้า...")
 
-        # ---------- เพิ่มส่วนนี้ให้แสดงเต็มจอ ----------
-        window_name = 'Video'
+        # Setup Fullscreen Window
+        window_name = 'Tuberbox Face Scan'
         cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-        # ------------------------------------------------
 
         try:
             while True:
                 ret, frame = self.video_capture.read()
                 if not ret:
-                    print("ไม่สามารถอ่านข้อมูลจากกล้องได้")
                     break
 
-                frame, recognized_this_frame = self._recognize_faces(frame)
-                self._update_hold_state(recognized_this_frame)
-                frame = self._draw_status_text(frame)
+                # 1. Process Logic
+                face_locations, face_names, recognized = self._process_frame(frame)
+                
+                # 2. Logic Hold Time
+                self._update_hold_state(recognized)
+                
+                # 3. Draw UI
+                self._draw_modern_ui(frame, face_locations, face_names)
 
                 cv2.imshow(window_name, frame)
 
-                # ถ้าสแกนผ่านแล้ว รออีกแป๊บแล้วค่อยออก
                 if self.verified:
-                    cv2.waitKey(1000)
+                    cv2.waitKey(2000) # โชว์หน้า Success ค้างไว้ 2 วิ
                     break
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
-                    print("ยกเลิกการสแกนโดยผู้ใช้")
                     break
 
         finally:
@@ -267,7 +305,6 @@ class FaceVerifier:
             print("ปิดโปรแกรมเรียบร้อย")
 
         return self.verified
-
 
 if __name__ == "__main__":
     WEBAPP_URL = "https://script.google.com/macros/s/AKfycbypFJrwXJVcEPNyveBYXplgGsO2CxZLnWvaHQgKbVLbThRwd7vbksIqAItmVtRLD-4v/exec"
@@ -281,7 +318,7 @@ if __name__ == "__main__":
         webapp_url=WEBAPP_URL,
         sheet_name="Patient",
         face_id="Paper",
-        serial_port="/dev/ttyUSB0",  # <<< ถ้าเสียบแล้วเป็น /dev/ttyACM0 ก็เปลี่ยนตรงนี้
+        serial_port="/dev/ttyUSB0", 
         serial_baudrate=115200
     )
     verifier.run()
