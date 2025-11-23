@@ -49,8 +49,6 @@ class FaceVerifier:
         # state เวลาการมองค้าง
         self.hold_start_time = None
         self.verified = False
-        self.scan_line_pos = 0     # สำหรับ Animation เส้นสแกน
-        self.scan_direction = 1    # ทิศทางเส้นสแกน
 
         self.video_capture = None
 
@@ -103,7 +101,7 @@ class FaceVerifier:
 
     def open_camera(self):
         self.video_capture = cv2.VideoCapture(self.camera_index)
-        # ตั้งค่าความละเอียดกล้องให้ชัดขึ้น (ถ้ากล้องรองรับ)
+        # ตั้งค่าความละเอียดกล้อง (ถ้ากล้องรองรับ)
         self.video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
@@ -146,106 +144,75 @@ class FaceVerifier:
 
         return face_locations, face_names, recognized_this_frame
 
-    # ---------- ส่วน UI / Drawing (ปรับปรุงใหม่ Modern Style) ----------
-    def _draw_modern_ui(self, frame, face_locations, face_names):
+    # ---------- ส่วน UI แบบ Minimal ----------
+    def _draw_minimal_ui(self, frame, face_locations, face_names):
         height, width, _ = frame.shape
         
-        # สี (BGR)
-        COLOR_CYAN = (255, 255, 0)      # กำลังสแกน
-        COLOR_GREEN = (0, 255, 0)       # ผ่าน
-        COLOR_RED = (0, 0, 255)         # ไม่ผ่าน/Unknown
+        # Palette (โทนสีเรียบง่าย)
+        # ขาวสะอาด
         COLOR_WHITE = (255, 255, 255)
-        
-        # 1. วาด HUD Overlay (เส้นขอบจอ + Text มุมจอ)
-        cv2.putText(frame, "AI MEDICINE DISPENSER", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_CYAN, 2)
-        cv2.putText(frame, time.strftime("%H:%M:%S"), (width - 150, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 2)
-        
-        # เส้นขอบจอบางๆ
-        cv2.line(frame, (20, 60), (100, 60), COLOR_CYAN, 2)
-        cv2.line(frame, (width-120, 60), (width-20, 60), COLOR_CYAN, 2)
+        # เขียวพาสเทล (Soft Green)
+        COLOR_SUCCESS = (144, 238, 144)
+        # แดงอ่อน (Soft Red) 
+        COLOR_ERROR = (128, 128, 255)
+        # เทาจางๆ
+        COLOR_GRAY = (200, 200, 200)
 
-        # 2. วาดกรอบใบหน้าและ Effect
-        for (top, right, bottom, left), name in zip(face_locations, face_names):
-            # Scale กลับมาขนาดจริง (เพราะตอน process เราย่อ 0.25)
-            top *= 4
-            right *= 4
-            bottom *= 4
-            left *= 4
+        # 1. แสดงสถานะกลางหน้าจอแบบเรียบๆ
+        if self.verified:
+            # วงกลมเขียวตรงกลาง + ติ๊กถูก (จำลองด้วย Text)
+            center_x, center_y = width // 2, height // 2
+            cv2.circle(frame, (center_x, center_y), 60, COLOR_SUCCESS, -1)
+            cv2.putText(frame, "OK", (center_x - 35, center_y + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
             
-            # เลือกสีตามสถานะ
-            color = COLOR_CYAN
-            if name == "Unknown":
-                color = COLOR_RED
-            if self.verified:
-                color = COLOR_GREEN
-
-            # --- A. วาดกรอบแบบ Tech (มุม 4 ด้าน) ---
-            line_len = int((right - left) * 0.2)
-            thickness = 3
+            # ข้อความด้านล่าง
+            msg = f"Welcome, {self.known_name}"
+            text_size = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+            cv2.putText(frame, msg, ((width - text_size[0]) // 2, center_y + 100), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, COLOR_WHITE, 2)
             
-            # มุมบนซ้าย
-            cv2.line(frame, (left, top), (left + line_len, top), color, thickness)
-            cv2.line(frame, (left, top), (left, top + line_len), color, thickness)
-            # มุมบนขวา
-            cv2.line(frame, (right, top), (right - line_len, top), color, thickness)
-            cv2.line(frame, (right, top), (right, top + line_len), color, thickness)
-            # มุมล่างซ้าย
-            cv2.line(frame, (left, bottom), (left + line_len, bottom), color, thickness)
-            cv2.line(frame, (left, bottom), (left, bottom - line_len), color, thickness)
-            # มุมล่างขวา
-            cv2.line(frame, (right, bottom), (right - line_len, bottom), color, thickness)
-            cv2.line(frame, (right, bottom), (right, bottom - line_len), color, thickness)
-
-            # --- B. เส้นสแกน (Scan Line Animation) ---
-            if not self.verified:
-                scan_height = bottom - top
-                self.scan_line_pos += (5 * self.scan_direction) # ความเร็วเส้น
+        else:
+            # 2. Loop วาดกรอบใบหน้า
+            for (top, right, bottom, left), name in zip(face_locations, face_names):
+                # Scale กลับมาขนาดจริง
+                top *= 4
+                right *= 4
+                bottom *= 4
+                left *= 4
                 
-                # กลับทิศทางเมื่อสุดขอบ
-                if self.scan_line_pos > scan_height:
-                    self.scan_direction = -1
-                elif self.scan_line_pos < 0:
-                    self.scan_direction = 1
-                
-                scan_y = top + self.scan_line_pos
-                # วาดเส้นสแกนจางๆ
-                cv2.line(frame, (left, scan_y), (right, scan_y), color, 2)
-                # วาดเงาเส้นสแกน (Glow effect จำลอง)
-                cv2.addWeighted(frame[scan_y:scan_y+1, left:right], 0.5, 
-                                np.full((1, right-left, 3), color, dtype=np.uint8), 0.5, 0, 
-                                frame[scan_y:scan_y+1, left:right])
+                # เลือกสี
+                color = COLOR_WHITE
+                if name == "Unknown":
+                    color = COLOR_ERROR
 
-            # --- C. ชื่อและสถานะ ---
-            # พื้นหลังชื่อ
-            cv2.rectangle(frame, (left, bottom + 10), (right, bottom + 40), color, cv2.FILLED)
-            # ชื่อ Text
-            font_scale = 0.6
-            text_size = cv2.getTextSize(name, cv2.FONT_HERSHEY_DUPLEX, font_scale, 1)[0]
-            text_x = left + (right - left - text_size[0]) // 2
-            cv2.putText(frame, name, (text_x, bottom + 32), cv2.FONT_HERSHEY_DUPLEX, font_scale, (0,0,0), 1)
+                # A. กรอบสี่เหลี่ยมเส้นบาง (Thin Rectangle)
+                # ใช้ความหนาแค่ 1 หรือ 2 pixel
+                cv2.rectangle(frame, (left, top), (right, bottom), color, 1)
 
-        # 3. Progress Bar (แถบโหลดตรงกลางด้านบน)
-        if self.hold_start_time is not None and not self.verified:
-            elapsed = time.time() - self.hold_start_time
-            progress = min(elapsed / self.hold_seconds, 1.0) # 0.0 to 1.0
-            
-            bar_width = 400
-            bar_height = 20
-            bar_x = (width - bar_width) // 2
-            bar_y = 100
-            
-            # วาดกรอบ Bar
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (50, 50, 50), -1)
-            # วาดเนื้อ Bar
-            fill_width = int(bar_width * progress)
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height), COLOR_CYAN, -1)
-            
-            cv2.putText(frame, "VERIFYING...", (bar_x, bar_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_CYAN, 1)
+                # B. ชื่อคน (แสดงเฉพาะเมื่อไม่รู้จัก หรือรู้จักแล้ว)
+                # วางไว้เหนือกรอบนิดหน่อย ตัวอักษรเล็กๆ แบบ Minimal
+                font_scale = 0.6
+                cv2.putText(frame, name.upper(), (left, top - 10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 1)
 
-        elif self.verified:
-            # ข้อความ Success ใหญ่ๆ
-            cv2.putText(frame, "ACCESS GRANTED", (width//2 - 150, height//2), cv2.FONT_HERSHEY_DUPLEX, 1.5, COLOR_GREEN, 2)
-            cv2.rectangle(frame, (0,0), (width, height), (0, 255, 0), 10) # ขอบจอเขียว
+                # C. Progress Bar แบบเส้น (Line Progress)
+                # แสดงเป็นเส้นตรงเล็กๆ ใต้กรอบหน้า
+                if self.hold_start_time is not None and name != "Unknown":
+                    elapsed = time.time() - self.hold_start_time
+                    progress = min(elapsed / self.hold_seconds, 1.0)
+                    
+                    # ความกว้างของเส้น Bar ตามความกว้างหน้า
+                    bar_width = right - left
+                    fill_width = int(bar_width * progress)
+                    
+                    # วาดพื้นหลังเส้น (สีเทาจาง)
+                    bar_y = bottom + 15
+                    cv2.line(frame, (left, bar_y), (right, bar_y), COLOR_GRAY, 2)
+                    
+                    # วาดเส้น Progress (สีขาวหรือเขียว)
+                    if fill_width > 0:
+                        cv2.line(frame, (left, bar_y), (left + fill_width, bar_y), COLOR_SUCCESS, 2)
 
     def _update_hold_state(self, recognized_this_frame: bool):
         """Logic จับเวลา"""
@@ -266,13 +233,12 @@ class FaceVerifier:
     def run(self):
         self.hold_start_time = None
         self.verified = False
-        self.scan_line_pos = 0
 
         self.open_camera()
-        print("📷 เริ่มระบบสแกนใบหน้า...")
+        print("📷 เริ่มระบบสแกนใบหน้า (Minimal Mode)...")
 
         # Setup Fullscreen Window
-        window_name = 'Tuberbox Face Scan'
+        window_name = 'Tuberbox Minimal'
         cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
@@ -288,13 +254,13 @@ class FaceVerifier:
                 # 2. Logic Hold Time
                 self._update_hold_state(recognized)
                 
-                # 3. Draw UI
-                self._draw_modern_ui(frame, face_locations, face_names)
+                # 3. Draw Minimal UI
+                self._draw_minimal_ui(frame, face_locations, face_names)
 
                 cv2.imshow(window_name, frame)
 
                 if self.verified:
-                    cv2.waitKey(2000) # โชว์หน้า Success ค้างไว้ 2 วิ
+                    cv2.waitKey(2000) # แสดงผลสำเร็จค้างไว้ 2 วินาที
                     break
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
