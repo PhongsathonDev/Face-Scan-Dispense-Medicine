@@ -4,31 +4,30 @@ import os
 import time
 import numpy as np
 
-def register_new_face(filename="patient.jpeg"):
+def register_new_face_with_nod(filename="patient.jpeg"):
+    # --- ตั้งค่าความไวของการพยักหน้า (ปรับแก้ได้ตรงนี้) ---
+    NOD_THRESHOLD = 15       # ค่าความเปลี่ยนแปลงของแกน Y ที่ถือว่าพยักหน้า (ค่ายิ่งน้อยยิ่งไวยิ่งติดง่าย)
+    NOD_FRAMES = 10          # จำนวนเฟรมที่จะเช็คย้อนหลัง (เพื่อดูการเคลื่อนไหว)
+    COUNTDOWN_TIME = 3       # เวลาในการนับถอยหลัง (วินาที)
+    # ------------------------------------------------
+
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
     print("--------------------------------------------------")
-    print("📷 ระบบลงทะเบียนใบหน้า (โหมดเบาเครื่อง)")
+    print("📷 ระบบลงทะเบียนใบหน้า (Head Nod Edition)")
     print("--------------------------------------------------")
-    print("  👉 พยักหน้า เพื่อเริ่มนับถอยหลัง")
-    print("  👉 หรือกด 's' เพื่อบันทึกทันที")
+    print("  👉 'พยักหน้า' ขึ้น-ลง เพื่อเริ่มนับถอยหลังและบันทึก")
+    print("  👉 กด 'q' เพื่อยกเลิก (Quit)")
+    print("--------------------------------------------------")
 
-    # ตัวแปรสำหรับการตรวจจับ (Logic)
+    # ตัวแปรสำหรับตรวจจับการพยักหน้า
     nose_y_history = []
-    nod_state = "WAITING" 
-    avg_nose_y = 0
     
-    # ตัวแปรนับถอยหลัง
+    # ตัวแปรสำหรับระบบนับถอยหลัง
     is_counting_down = False
     countdown_start_time = 0
-    countdown_duration = 3
-
-    # *** ตัวแปรสำหรับลดภาระเครื่อง (Optimization) ***
-    frame_count = 0
-    process_every_n_frames = 4 # ตรวจจับจมูกทุกๆ 4 เฟรม (ปรับเลขนี้ได้ ถ้ายังแลคให้เพิ่มเป็น 5-6)
-    last_nose_y = 0 # จำค่าเดิมไว้ใช้ในเฟรมที่ข้ามไป
 
     while True:
         ret, frame = cap.read()
@@ -36,126 +35,108 @@ def register_new_face(filename="patient.jpeg"):
             print("❌ ไม่สามารถเปิดกล้องได้")
             break
 
+        # กลับด้านภาพเพื่อให้เหมือนกระจก (Mirror) จะได้กะระยะง่าย
         frame = cv2.flip(frame, 1)
+        
         display_frame = frame.copy()
         height, width, _ = frame.shape
-        
-        # นับจำนวนเฟรม
-        frame_count += 1
 
-        # ---------------------------------------------------------
-        # 1. ส่วนการตรวจจับพยักหน้า (ทำงานเฉพาะรอบที่กำหนด)
-        # ---------------------------------------------------------
+        # ลดขนาดภาพลง 1/4 เฉพาะตอนประมวลผล AI เพื่อให้ FPS ลื่นไหล (การบันทึกยังชัดเท่าเดิม)
+        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
+        # 1. ค้นหาใบหน้าและจุด Landmark
+        face_locations = face_recognition.face_locations(rgb_small_frame)
+        
+        # ถ้ายังไม่เริ่มนับถอยหลัง ให้ตรวจจับการพยักหน้า
         if not is_counting_down:
-            # ทำงานเฉพาะเมื่อหารลงตัว (เช่น เฟรมที่ 0, 4, 8...) เพื่อลดกระตุก
-            if frame_count % process_every_n_frames == 0:
+            if len(face_locations) > 0:
+                # หา Landmark (ตา จมูก ปาก)
+                face_landmarks = face_recognition.face_landmarks(rgb_small_frame, face_locations)
                 
-                # ย่อภาพเล็กมากเพื่อให้ไวสุดๆ (0.2)
-                small_frame = cv2.resize(frame, (0, 0), fx=0.2, fy=0.2)
-                rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-                
-                face_landmarks_list = face_recognition.face_landmarks(rgb_small_frame)
+                if face_landmarks:
+                    # ใช้ตำแหน่ง "ปลายจมูก" (Nose Tip) จุดแรกในการเช็ค
+                    # ต้องคูณ 4 กลับ เพราะเราย่อภาพไป 0.25
+                    nose_tip = face_landmarks[0]['nose_tip'][0]
+                    nose_y = nose_tip[1] * 4 
 
-                if face_landmarks_list:
-                    nose_tip = face_landmarks_list[0]['nose_tip'][0]
-                    nose_y = nose_tip[1]
-                    last_nose_y = nose_y # อัปเดตค่าล่าสุด
-                else:
-                    nose_y = last_nose_y # ถ้าหาไม่เจอ ให้ใช้ค่าเดิมไปก่อน
+                    # เก็บประวัติแกน Y ของจมูก
+                    nose_y_history.append(nose_y)
+                    if len(nose_y_history) > NOD_FRAMES:
+                        nose_y_history.pop(0)
+
+                    # คำนวณส่วนต่างของตำแหน่งสูงสุดและต่ำสุดในช่วงเวลาสั้นๆ
+                    if len(nose_y_history) == NOD_FRAMES:
+                        movement = max(nose_y_history) - min(nose_y_history)
+                        
+                        # ถ้ามีการขยับขึ้นลงมากกว่าค่าที่ตั้งไว้ -> ถือว่าพยักหน้า
+                        if movement > NOD_THRESHOLD:
+                            print("💡 ตรวจพบการพยักหน้า! เริ่มนับถอยหลัง...")
+                            is_counting_down = True
+                            countdown_start_time = time.time()
+                            nose_y_history = [] # เคลียร์ค่าป้องกันการกดซ้ำ
+
+                # วาดกรอบหน้า (สีขาว) ให้รู้ว่าเจอหน้าแล้ว
+                for (top, right, bottom, left) in face_locations:
+                    top *= 4; right *= 4; bottom *= 4; left *= 4
+                    cv2.rectangle(display_frame, (left, top), (right, bottom), (255, 255, 255), 2)
+
             else:
-                # เฟรมที่ข้ามไป ให้ใช้ค่าเดิม (ไม่ต้องคำนวณใหม่)
-                nose_y = last_nose_y
+                # ถ้าไม่เจอหน้า ให้เคลียร์ประวัติ (กัน error)
+                nose_y_history = []
+                cv2.putText(display_frame, "Please show your face", (50, 50), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-            # --- Logic พยักหน้า (ใช้ค่า nose_y ที่ได้) ---
-            if nose_y != 0: # ป้องกันค่า 0 ตอนเริ่มโปรแกรม
-                if len(nose_y_history) < 10:
-                    nose_y_history.append(nose_y)
-                    avg_nose_y = sum(nose_y_history) / len(nose_y_history)
-                else:
-                    nose_y_history.pop(0)
-                    nose_y_history.append(nose_y)
-                    avg_nose_y = sum(nose_y_history) / len(nose_y_history)
-
-                # ความไว (Sensitivity)
-                sensitivity = 2 
-                
-                if nod_state == "WAITING":
-                    if nose_y > avg_nose_y + sensitivity: # ก้ม
-                        nod_state = "DOWN"
-                elif nod_state == "DOWN":
-                    if nose_y < avg_nose_y - sensitivity: # เงย
-                        print("💡 พยักหน้าสำเร็จ! (Nod Detected)")
-                        is_counting_down = True
-                        countdown_start_time = time.time()
-                        nod_state = "WAITING"
-
-        # ---------------------------------------------------------
-        # 2. ส่วนแสดงผลกราฟิก (วาดทุกเฟรมเพื่อให้ภาพลื่น)
-        # ---------------------------------------------------------
+        # 2. วาด Interface
+        # กรอบสี่เหลี่ยมกลางหน้าจอ (Zone ที่ควรอยู่)
         box_size = 400
-        x1 = (width - box_size) // 2
-        y1 = (height - box_size) // 2
-        x2 = x1 + box_size
-        y2 = y1 + box_size
+        x1, y1 = (width - box_size) // 2, (height - box_size) // 2
+        x2, y2 = x1 + box_size, y1 + box_size
         
-        color = (161, 214, 162)
+        color = (161, 214, 162) if not is_counting_down else (0, 165, 255) # เปลี่ยนสีเป็นส้มตอนนับถอยหลัง
+        cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
 
+        if not is_counting_down:
+            cv2.putText(display_frame, "Nod to Save", (x1 + 110, y1 - 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        
+        # 3. Logic การนับถอยหลังและบันทึก
         if is_counting_down:
             elapsed_time = time.time() - countdown_start_time
-            time_left = countdown_duration - elapsed_time
-            
+            time_left = COUNTDOWN_TIME - int(elapsed_time)
+
             if time_left > 0:
-                color = (0, 165, 255)
-                # วาดเลขตัวใหญ่
-                cv2.putText(display_frame, str(int(time_left) + 1), 
-                           (width//2 - 30, height//2 + 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 10)
-                cv2.putText(display_frame, "Smile!", (width//2 - 80, y1 - 40), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
+                # แสดงตัวเลขนับถอยหลังกลางจอ
+                text_size = cv2.getTextSize(str(time_left), cv2.FONT_HERSHEY_SIMPLEX, 10, 20)[0]
+                text_x = (width - text_size[0]) // 2
+                text_y = (height + text_size[1]) // 2
+                cv2.putText(display_frame, str(time_left), (text_x, text_y), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 10, (0, 255, 255), 20)
             else:
-                key = ord('s') 
-                is_counting_down = False 
-
-        cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 3)
-        if not is_counting_down:
-             cv2.putText(display_frame, "Nod to Capture", (x1 + 80, y1 - 20), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-
-        cv2.imshow("Register New Face", display_frame)
-
-        # ---------------------------------------------------------
-        # 3. ควบคุมปุ่มกด
-        # ---------------------------------------------------------
-        if 'key' not in locals():
-            key = cv2.waitKey(1) & 0xFF
-
-        if key == ord('s'):
-            # ตอนบันทึก ค่อยเรียก face_recognition แบบเต็มสตรีม (ยอมแลคแป๊บนึง)
-            print("⏳ Saving...")
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            face_locations = face_recognition.face_locations(rgb_frame)
-
-            if len(face_locations) > 0:
+                # --- หมดเวลา: บันทึกภาพ ---
                 cv2.imwrite(filename, frame)
-                print(f"✅ Saved: {filename}")
+                print(f"✅ บันทึกรูปภาพเรียบร้อย! ({filename})")
                 
-                cv2.rectangle(display_frame, (0,0), (width, height), (255, 255, 255), 10)
-                cv2.putText(display_frame, "SAVED!", (width//2 - 150, height//2), 
+                # แสดงข้อความ Saved
+                cv2.putText(display_frame, "SAVED!", (width//2 - 180, height//2), 
                             cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 5)
                 cv2.imshow("Register New Face", display_frame)
-                cv2.waitKey(1500)
+                cv2.waitKey(2000) # โชว์ค้างไว้ 2 วินาที
                 break
-            else:
-                print("⚠️ No face found")
-                is_counting_down = False 
 
-        elif key == ord('q'):
-            break
+        cv2.imshow("Register New Face", display_frame)
         
-        key = -1 
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            print("❌ ยกเลิก")
+            break
+        # เผื่ออยากกด s บันทึกเองเหมือนเดิม
+        elif key == ord('s') and not is_counting_down:
+            is_counting_down = True
+            countdown_start_time = time.time()
 
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    register_new_face()
+    register_new_face_with_nod()
