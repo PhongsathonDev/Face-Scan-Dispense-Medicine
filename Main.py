@@ -140,7 +140,7 @@ class FullScreenImageApp:
         self.canvas.tag_bind(btn_manual, "<Button-1>", self.switch_to_manual_mode)
         self.main_ui_items.append(btn_manual)
 
-        # [2] สร้างปุ่มใหม่: ลงทะเบียนใบหน้า (มุมซ้ายบน)
+        # [2] สร้างปุ่มใหม่: ลงทะเบียนใบหน้า (มุมขวาล่าง)
         # สร้างกรอบปุ่ม
         btn_register = self.canvas.create_rectangle(20, 20, 220, 90, outline="black", width=2, fill="#e0e0e0", tags="btn_register")
         self.canvas.tag_bind(btn_register, "<Button-1>", self.on_register_click)

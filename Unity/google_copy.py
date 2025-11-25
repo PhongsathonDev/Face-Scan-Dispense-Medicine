@@ -29,7 +29,7 @@ if __name__ == "__main__":
     # URL Web App ของคุณ (อย่าลืม Deploy เป็น New Version ก่อนนะครับ)
     GAS_URL = "https://script.google.com/macros/s/AKfycbwls7Fl6tVQnzJdqx94J-dkAigtE6H0QsFZD5gs4-YgWmKni-H2f62nsY5xw1q0gGV_0g/exec" 
     
-    SHEET_ID = "1ZndbpuQx0-PBIlXOdcfD9eKPfQMI5TOWhzM8lOLdEo8"
+    SHEET_ID = "1qs10Pe8kuysAfTCu-Es_zrRJvujqEZKKRMygSojUKlc"
     
     # ต้นฉบับชื่อ "Patient0"
     # ต้องการสร้างใหม่โดยใช้คำนำหน้าว่า "Patient" 
