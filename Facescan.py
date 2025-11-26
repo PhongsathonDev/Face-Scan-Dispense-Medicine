@@ -12,7 +12,6 @@ import config  # <--- นำเข้าไฟล์ตั้งค่า
 class FaceVerifier:
     def __init__(
         self,
-        # ปรับ Default Parameter ให้ใช้ค่าจาก config
         known_image_path: str = config.KNOWN_IMAGE_PATH,
         known_name: str = config.KNOWN_NAME,
         tolerance: float = config.TOLERANCE,
@@ -55,6 +54,30 @@ class FaceVerifier:
         self.hold_start_time = None
         self.verified = False
         self.video_capture = None
+
+    # ========================================================
+    # 🟢 [NEW] ฟังก์ชันสำหรับอัปเดตข้อมูลผู้ป่วยใหม่ (แก้ Memory Leak)
+    # ========================================================
+    def update_settings(self, new_sheet_name, new_known_name, new_image_path):
+        """
+        อัปเดตข้อมูลผู้ป่วยและโหลดใบหน้าใหม่ โดยไม่ต้องสร้าง Object ใหม่
+        ช่วยลดการกิน Ram และป้องกัน Serial Port หลุด
+        """
+        print(f"♻️ กำลังอัปเดตข้อมูลผู้ป่วย: {new_known_name}...")
+        
+        # 1. อัปเดตตัวแปร
+        self.sheet_name = new_sheet_name
+        self.known_name = new_known_name
+        self.known_image_path = new_image_path
+        
+        # 2. โหลด Encoding ใบหน้าใหม่ (เฉพาะส่วนนี้ที่ต้องคำนวณใหม่)
+        self.known_face_encodings, self.known_face_names = self._load_known_faces()
+        
+        # 3. รีเซ็ตสถานะการสแกน
+        self.hold_start_time = None
+        self.verified = False
+        
+        print(f"✅ อัปเดตเรียบร้อย! พร้อมสำหรับผู้ป่วย: {self.known_name} (Sheet: {self.sheet_name})")
 
     # ---------- Send Google Sheet (System Offline Support) ----------
     def send_log_to_sheet(self, note: str = "Face verified"):
@@ -156,10 +179,11 @@ class FaceVerifier:
     # ---------- Send ESP32 ----------
     def send_command_to_esp32(self, cmd: str = "f"):
         if self.ser is None:
-            # ถ้าไม่มี Serial จริง ให้ข้ามไป (หรือ print test)
-            # print(f"Simulation: Sent '{cmd}' to ESP32")
             return
         try:
+            # 🟢 [Update] เคลียร์ Buffer ก่อนส่ง เพื่อลดอาการแลค
+            self.ser.reset_input_buffer()
+            
             self.ser.write(cmd.encode("utf-8"))
             self.ser.flush()
             print(f"➡️ ส่งคำสั่ง '{cmd}' ไปยัง ESP32")
@@ -285,16 +309,30 @@ class FaceVerifier:
         cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
         cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
+        # 🟢 [Update] ใช้ Skip Frame เพื่อลดภาระ CPU
+        frame_count = 0
+        process_every_n_frames = 2 # ประมวลผลทุกๆ 2 เฟรม
+
+        # ตัวแปรสำหรับเก็บผลลัพธ์เฟรมก่อนหน้า (ใช้แสดงผลตอนข้ามเฟรม)
+        last_locs, last_names, last_rec = [], [], False
+
         try:
             while True:
                 ret, frame = self.video_capture.read()
                 if not ret: break
 
-                locs, names, rec = self._process_frame(frame)
-                self._update_hold_state(rec)
-                self._draw_tuberbox_ui(frame, locs, names)
+                frame_count += 1
+                display_frame = frame.copy()
 
-                cv2.imshow(window_name, frame)
+                # ประมวลผลเฉพาะเฟรมที่กำหนด
+                if frame_count % process_every_n_frames == 0:
+                    last_locs, last_names, last_rec = self._process_frame(frame)
+                    self._update_hold_state(last_rec)
+                
+                # วาด UI โดยใช้ข้อมูลล่าสุด (ไม่ว่าจะคำนวณใหม่หรือของเก่า)
+                self._draw_tuberbox_ui(display_frame, last_locs, last_names)
+
+                cv2.imshow(window_name, display_frame)
 
                 if self.verified:
                     cv2.waitKey(2000) # โชว์หน้า Verified 2 วินาทีแล้วปิด
@@ -305,6 +343,5 @@ class FaceVerifier:
             self.close_camera()
 
 if __name__ == "__main__":
-    # เรียกใช้โดยไม่ต้องใส่พารามิเตอร์ (เพราะจะดึงจาก config เอง)
     verifier = FaceVerifier()
     verifier.run()
