@@ -341,8 +341,8 @@ class FaceVerifier:
 
                 # ✅ แสดงเวลานับถอยหลังบนหน้าจอ (Optional)
                 time_left = max(0, int(self.scan_timeout - elapsed_scan_time))
-                cv2.putText(display_frame, f"Time left: {time_left}s", (50, 100), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+                cv2.putText(display_frame, f"Time left: {time_left}s", (20, 700), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
                 cv2.imshow(window_name, display_frame)
 
