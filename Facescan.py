@@ -341,6 +341,8 @@ class FaceVerifier:
                     break
         finally:
             self.close_camera()
+        
+        return self.verified
 
 if __name__ == "__main__":
     verifier = FaceVerifier()
