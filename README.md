@@ -4,6 +4,16 @@
 
 โครงการนี้คือระบบจ่ายยาอัจฉริยะที่ผสมผสานเทคโนโลยี **Computer Vision**, **IoT** และ **Web Technology** เข้าด้วยกัน เพื่อให้มั่นใจว่าผู้ป่วยได้รับยาอย่างถูกต้องและตรงเวลา โดยใช้ **Raspberry Pi** (หรือ PC) เป็นหน่วยประมวลผลหลัก ควบคุมการทำงานผ่านหน้าจอสัมผัส (Touchscreen GUI) และสั่งการฮาร์ดแวร์จ่ายยาผ่าน **ESP32** พร้อมระบบติดตามผลผ่าน Web Dashboard แบบ Real-time
 
+
+
+
+
+[![วิดีโอตัวอย่างการทำงาน](https://img5.pic.in.th/file/secure-sv1/Portfolio--3.png)](https://drive.google.com/file/d/12Y-gntrWKoKE5B0EZOnevoNy0pt2GfrG/view?usp=drive_link)
+
+คลิกภาพเพื่อดูวิดีโอตัวอย่างการทำงาน
+
+
+
 ---
 
 ## 🌟 ฟีเจอร์เด่น (Key Features)
